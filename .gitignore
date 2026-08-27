@@ -1,0 +1,16 @@
+.cache/
+training/.venv/
+training/.pytest_cache/
+training/.ruff_cache/
+training/.basedpyright/
+training/outputs/
+training/data/raw/
+*.safetensors
+*.bin
+*.pt
+*.pth
+checkpoint-*/
+wandb/
+__pycache__/
+*.pyc
+
