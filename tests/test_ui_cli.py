@@ -4,6 +4,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from sovyn.cli import app
+from sovyn.provider_init import ProviderStatus, resolve_provider
+from sovyn.config import ModelSettings
 from sovyn.ui import DiamondState, FRAMES, Renderer
 
 
@@ -36,4 +38,17 @@ def test_cli_demo_does_not_require_provider(tmp_path: Path, monkeypatch) -> None
     result = CliRunner().invoke(app, ["demo"])
 
     assert result.exit_code == 0
-    assert "◆ Tests completed" in result.stdout
+    assert "◆ 13 passed" in result.stdout
+
+
+def test_ollama_resolution_reports_unavailable_without_network(monkeypatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda command: "ollama")
+
+    def failing_get(url: str):
+        import httpx
+
+        raise httpx.ConnectError("offline")
+
+    resolution = resolve_provider(ModelSettings("ollama", "qwen3:8b"), failing_get)
+
+    assert resolution.status is ProviderStatus.UNAVAILABLE

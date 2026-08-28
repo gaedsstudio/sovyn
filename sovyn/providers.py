@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+import json
 from typing import Protocol
 
 import httpx
@@ -20,7 +21,8 @@ class MockProvider:
     name: str = "mock/mock-local"
 
     async def generate(self, prompt: str) -> str:
-        return f"Mock plan for: {prompt}"
+        request = prompt.splitlines()[0].replace("User request: ", "")
+        return f"Done. Mock provider handled: {request}"
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
         yield await self.generate(prompt)
@@ -42,7 +44,16 @@ class OllamaProvider:
             return str(response.json().get("response", ""))
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
-        yield await self.generate(prompt)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", f"{self.base_url}/api/generate", json={"model": self.model, "prompt": prompt, "stream": True}) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    payload = json.loads(line)
+                    chunk = str(payload.get("response", ""))
+                    if chunk:
+                        yield chunk
 
 
 @dataclass(frozen=True, slots=True)

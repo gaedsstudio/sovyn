@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum, unique
 import os
+from time import perf_counter
 from typing import TextIO
 
 
@@ -46,3 +47,32 @@ class Renderer:
         if self.capabilities.interactive:
             self.stream.write("\r")
         self.line(DiamondState.COMPLETED, message)
+
+    def stream_text(self, value: str) -> None:
+        self.stream.write(f"{value}\n")
+        self.stream.flush()
+
+    def task(self, message: str):
+        return Spinner(self, message)
+
+
+class Spinner:
+    def __init__(self, renderer: Renderer, message: str) -> None:
+        self.renderer = renderer
+        self.message = message
+        self.started = perf_counter()
+        self.visible = False
+
+    def tick(self, frame_index: int) -> None:
+        elapsed = perf_counter() - self.started
+        if elapsed < 0.25:
+            return
+        self.visible = True
+        self.renderer.update(frame_index, self.message)
+
+    def complete(self, message: str) -> None:
+        elapsed = perf_counter() - self.started
+        suffix = f" {elapsed:.1f}s" if elapsed > 0.5 else ""
+        if self.visible and self.renderer.capabilities.interactive:
+            self.renderer.stream.write("\r")
+        self.renderer.line(DiamondState.COMPLETED, f"{message}{suffix}")

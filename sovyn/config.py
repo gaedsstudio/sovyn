@@ -112,3 +112,32 @@ def write_default_config(path: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def write_config(path: Path, config: SovynConfig) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            (
+                "[model]",
+                f'provider = "{config.model.provider}"',
+                f'model = "{config.model.model}"',
+                "",
+                "[agent]",
+                f"max_steps = {config.agent.max_steps}",
+                "",
+                "[permissions]",
+                f'read_files = "{config.permissions.read_files.value}"',
+                f'write_files = "{config.permissions.write_files.value}"',
+                f'shell = "{config.permissions.shell.value}"',
+                f'delete_files = "{config.permissions.delete_files.value}"',
+                f'git_commit = "{config.permissions.git_commit.value}"',
+                "",
+                "[ui]",
+                f"animations = {str(config.ui.animations).lower()}",
+                f"timestamps = {str(config.ui.timestamps).lower()}",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )

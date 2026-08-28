@@ -11,16 +11,20 @@ from sovyn.demo import run_demo
 from sovyn.doctor import run_doctor
 from sovyn.memory import add_memory, forget_memory, list_memory
 from sovyn.paths import default_paths
-from sovyn.providers import MockProvider, OllamaProvider, OpenAICompatibleProvider
-from sovyn.sessions import list_sessions
-from sovyn.storage import Store
+from sovyn.provider_init import ProviderStatus
+from sovyn.providers import AnthropicProvider, MockProvider, OllamaProvider, OpenAICompatibleProvider
+from sovyn.repl import run_repl
+from sovyn.runtime import boot
+from sovyn.sessions import get_session, list_sessions
+from sovyn.storage import Store, trajectory_for_session
 from sovyn.ui import DiamondState, Renderer
 from sovyn.undo import describe_last_undo
 from sovyn.workflows import list_workflows, load_workflow
+from sovyn.workflow_runner import run_workflow
 
 app = typer.Typer(add_completion=False, no_args_is_help=False, context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 
-KNOWN_COMMANDS = {"run", "workflows", "sessions", "memory", "config", "doctor", "undo", "demo", "version"}
+KNOWN_COMMANDS = {"run", "workflow", "workflows", "session", "sessions", "memory", "config", "doctor", "undo", "demo", "version"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,16 +49,14 @@ def main(
     renderer = Renderer(sys.stdout, interactive=False if no_interactive else None)
     if ctx.invoked_subcommand is not None:
         return
-    renderer.line(DiamondState.COMPLETED, f"SOVYN {__version__}")
     task = " ".join(ctx.args) if ctx.args else None
     if task is None:
-        renderer.line(DiamondState.ATTENTION, f"Model configured: {config.model.provider}/{config.model.model}")
+        run_repl(boot(sys.stdin, sys.stdout, interactive=not no_interactive))
         return
     provider = _provider(config.model.provider, config.model.model)
     result = run_agent(task, AgentRuntime(provider=provider, store=Store(paths.database), renderer=renderer, workspace=paths.workspace))
     if verbose or debug:
         renderer.line(DiamondState.COMPLETED, f"RUN #{result.session_id} {result.duration_seconds:.1f}s")
-    typer.echo(result.response)
     if not no_interactive:
         renderer.line(DiamondState.ATTENTION, "This task appears reusable. Create workflow? [Y/n]")
 
@@ -75,31 +77,52 @@ def entrypoint() -> None:
 
 
 def _run_one_shot(task: str, flags: OneShotFlags) -> None:
-    paths = default_paths()
-    paths.ensure()
-    if not paths.config.exists():
-        write_default_config(paths.config)
-    config = load_config(paths)
-    renderer = Renderer(sys.stdout, interactive=False if flags.no_interactive else None)
+    runtime = boot(sys.stdin, sys.stdout, interactive=not flags.no_interactive)
+    paths = runtime.paths
+    config = runtime.config
+    renderer = runtime.renderer
     renderer.line(DiamondState.COMPLETED, f"SOVYN {__version__}")
-    provider = _provider(config.model.provider, config.model.model)
-    result = run_agent(task, AgentRuntime(provider=provider, store=Store(paths.database), renderer=renderer, workspace=paths.workspace))
+    if runtime.provider.status is ProviderStatus.UNAVAILABLE and config.model.provider != "mock":
+        renderer.line(DiamondState.FAILED, runtime.provider.detail)
+        return
+    result = run_agent(
+        task,
+        AgentRuntime(runtime.provider.provider, runtime.store, renderer, paths.workspace, runtime.interaction),
+    )
     if flags.verbose or flags.debug:
         renderer.line(DiamondState.COMPLETED, f"RUN #{result.session_id} {result.duration_seconds:.1f}s")
-    typer.echo(result.response)
     if not flags.no_interactive:
-        renderer.line(DiamondState.ATTENTION, "This task appears reusable. Create workflow? [Y/n]")
+        if result.workflow is not None:
+            runtime.interaction.offer_workflow(result.workflow, paths.workflows)
 
 
 @app.command()
 def run(workflow: str) -> None:
+    runtime = boot(sys.stdin, sys.stdout, interactive=sys.stdout.isatty())
+    run_workflow(runtime.paths.workflows / f"{workflow}.yaml", runtime.paths.workspace, runtime.store, runtime.renderer, runtime.interaction)
+
+
+workflow_app = typer.Typer(add_completion=False)
+app.add_typer(workflow_app, name="workflow")
+
+
+@workflow_app.command("show")
+def workflow_show(name: str) -> None:
     paths = default_paths()
-    loaded = load_workflow(paths.workflows / f"{workflow}.yaml")
-    renderer = Renderer(sys.stdout)
-    renderer.line(DiamondState.COMPLETED, "Workflow loaded")
-    renderer.line(DiamondState.COMPLETED, loaded.name)
-    for step in loaded.steps:
-        renderer.line(DiamondState.COMPLETED, step.summary)
+    loaded = load_workflow(paths.workflows / f"{name}.yaml")
+    typer.echo(f"WORKFLOW\n\n{loaded.name}")
+    for index, step in enumerate(loaded.steps, start=1):
+        typer.echo(f"{index}  {step.tool}  {step.kind.value}")
+
+
+@workflow_app.command("edit")
+def workflow_edit(name: str) -> None:
+    import os
+    import subprocess
+
+    paths = default_paths()
+    editor = os.environ.get("EDITOR", "notepad" if sys.platform == "win32" else "vi")
+    subprocess.run([editor, str(paths.workflows / f"{name}.yaml")], check=False)
 
 
 @app.command()
@@ -114,8 +137,24 @@ def workflows() -> None:
 @app.command()
 def sessions() -> None:
     paths = default_paths()
+    typer.echo("SESSIONS")
     for record in list_sessions(Store(paths.database)):
-        typer.echo(f"RUN #{record.id} {record.result} {record.tool_calls} tools {record.duration_seconds:.1f}s")
+        typer.echo(f"#{record.id:04d}   {record.request[:28]:<28} {record.result}")
+
+
+@app.command()
+def session(session_id: int) -> None:
+    paths = default_paths()
+    store = Store(paths.database)
+    record = get_session(store, session_id)
+    if record is None:
+        typer.echo("Session not found")
+        return
+    typer.echo(f"REQUEST\n\n{record.request}\n")
+    typer.echo("ACTIONS")
+    for index, tool in enumerate(trajectory_for_session(store, session_id), start=1):
+        typer.echo(f"{index:02d} {tool.name} {tool.summary}")
+    typer.echo(f"\nRESULT\n\n{record.result}\n\nDuration\n{record.duration_seconds:.1f}s")
 
 
 @app.command()
@@ -138,20 +177,25 @@ def memory(action: str = "show", note: str | None = None, category: str = "expli
 
 
 @app.command()
-def config() -> None:
+def config(action: str = "show") -> None:
     paths = default_paths()
     paths.ensure()
     if not paths.config.exists():
         write_default_config(paths.config)
-    typer.echo(paths.config)
+    match action:
+        case "show":
+            typer.echo(paths.config.read_text(encoding="utf-8"))
+        case _:
+            typer.echo(paths.config)
 
 
 @app.command()
 def doctor() -> None:
-    paths = default_paths()
-    renderer = Renderer(sys.stdout)
+    runtime = boot(sys.stdin, sys.stdout, interactive=False)
+    paths = runtime.paths
+    renderer = runtime.renderer
     renderer.line(DiamondState.COMPLETED, "SOVYN Doctor")
-    for check in run_doctor(paths):
+    for check in run_doctor(paths, runtime.config, runtime.provider):
         state = DiamondState.COMPLETED if check.ok else DiamondState.FAILED
         renderer.line(state, f"{check.name:<18} {check.detail}")
 
@@ -179,5 +223,7 @@ def _provider(provider: str, model: str):
             return OllamaProvider(model=model)
         case "openai-compatible" | "openai":
             return OpenAICompatibleProvider(model=model, api_key="", base_url="https://api.openai.com/v1", provider_name=provider)
+        case "anthropic":
+            return AnthropicProvider(model=model, api_key="")
         case _:
             return MockProvider(name=f"mock/{model}")

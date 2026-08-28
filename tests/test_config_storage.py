@@ -4,7 +4,9 @@ from sovyn.config import PermissionPolicy, load_config, write_default_config
 from sovyn.memory import add_memory, forget_memory, list_memory
 from sovyn.paths import default_paths
 from sovyn.sessions import create_session, list_sessions
-from sovyn.storage import Store
+from sovyn.storage import Store, trajectory_for_session, record_trajectory
+from sovyn.tools import ToolResult
+from sovyn.trust import WorkspaceTrust
 
 
 def test_config_loads_default_when_file_missing(tmp_path: Path) -> None:
@@ -45,3 +47,20 @@ def test_sessions_persist_metadata_when_created(tmp_path: Path) -> None:
 
     assert sessions[0].id == session_id
     assert sessions[0].tool_calls == 2
+
+
+def test_workspace_trust_is_stored_locally(tmp_path: Path) -> None:
+    trust = WorkspaceTrust(Store(tmp_path / "sovyn.db"))
+
+    trust.trust(tmp_path)
+
+    assert trust.is_trusted(tmp_path) is True
+
+
+def test_trajectory_is_recorded_for_session(tmp_path: Path) -> None:
+    store = Store(tmp_path / "sovyn.db")
+    session_id = create_session(store, "inspect", "success", 1, 0.2)
+
+    record_trajectory(store, session_id, (ToolResult("git.status", "1 changed path"),))
+
+    assert trajectory_for_session(store, session_id)[0].name == "git.status"

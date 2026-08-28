@@ -1,9 +1,13 @@
 from pathlib import Path
 
 from sovyn.config import DEFAULT_CONFIG
+from sovyn.compression import CompressionConfig, compress_text
+from sovyn.diffing import preview_write
 from sovyn.permissions import ActionKind, PermissionDecision, PermissionRequest, decide_permission
+from sovyn.security import has_sensitive_content, redact_secrets
 from sovyn.tools import list_files
 from sovyn.workflows import StepKind, Workflow, WorkflowStep, load_workflow, save_workflow, workflow_from_success
+from sovyn.workflow_runner import _resolve_vars
 
 
 def test_permission_blocks_ask_policy_when_non_interactive() -> None:
@@ -53,3 +57,34 @@ def test_workspace_index_ignores_generated_directories(tmp_path: Path) -> None:
     result = list_files(tmp_path)
 
     assert result.summary == "1 files indexed"
+
+
+def test_diff_preview_counts_file_write_changes(tmp_path: Path) -> None:
+    path = tmp_path / "hello.txt"
+
+    diff = preview_write(path, "hello\n")
+
+    assert diff.additions == 1
+    assert diff.deletions == 0
+
+
+def test_compression_marks_omitted_middle() -> None:
+    text = "\n".join(str(index) for index in range(12))
+
+    compressed = compress_text(text, CompressionConfig(max_lines=6, edge_lines=2))
+
+    assert "[output truncated: 8 lines omitted]" in compressed
+
+
+def test_secret_detection_flags_env_style_token() -> None:
+    value = "API_KEY=sk-abcdefghijklmnopqrstuvwxyz"
+
+    assert has_sensitive_content(".env", value) is True
+    assert "[REDACTED]" in redact_secrets(value)
+
+
+def test_workflow_variables_resolve_workspace_and_date(tmp_path: Path) -> None:
+    resolved = _resolve_vars("${workspace}/${date}", tmp_path)
+
+    assert str(tmp_path) in resolved
+    assert "${date}" not in resolved

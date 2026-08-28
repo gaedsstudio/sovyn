@@ -44,6 +44,14 @@ def _migrate(connection: sqlite3.Connection) -> None:
         "classification TEXT NOT NULL,"
         "duration_seconds REAL NOT NULL"
         ");"
+        "CREATE TABLE IF NOT EXISTS trusted_workspaces ("
+        "path TEXT PRIMARY KEY"
+        ");"
+        "CREATE TABLE IF NOT EXISTS permission_grants ("
+        "action TEXT NOT NULL,"
+        "description TEXT NOT NULL,"
+        "PRIMARY KEY (action, description)"
+        ");"
     )
     connection.commit()
 
@@ -65,3 +73,30 @@ def record_trajectory(
             ),
         )
         connection.commit()
+
+
+def trajectory_for_session(store: Store, session_id: int) -> tuple[ToolResult, ...]:
+    with store.connect() as connection:
+        rows = connection.execute(
+            "SELECT tool, result_summary FROM trajectory_steps WHERE session_id = ? ORDER BY step_index",
+            (session_id,),
+        ).fetchall()
+    return tuple(ToolResult(str(row[0]), str(row[1])) for row in rows)
+
+
+def grant_permission(store: Store, action: str, description: str) -> None:
+    with store.connect() as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO permission_grants (action, description) VALUES (?, ?)",
+            (action, description),
+        )
+        connection.commit()
+
+
+def has_permission_grant(store: Store, action: str, description: str) -> bool:
+    with store.connect() as connection:
+        row = connection.execute(
+            "SELECT 1 FROM permission_grants WHERE action = ? AND description = ?",
+            (action, description),
+        ).fetchone()
+    return row is not None

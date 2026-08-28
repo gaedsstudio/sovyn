@@ -26,19 +26,17 @@ sovyn demo
 
 ```text
 ◇ Inspecting workspace...
-◆ 184 files indexed
-◇ Checking project structure...
-◆ Python project detected
+◆ 63 source files found
+◇ Checking Git...
+◆ Git repository detected
 ◇ Running tests...
-◆ Tests completed
-◇ Investigating...
-◆ Suggested patch ready
-! Apply changes? [Y/n]
+◆ 13 passed
+! This task could be saved as a workflow. Create workflow? [Y/n]
 ```
 
 ## Why Workflows
 
-SOVYN records successful tool trajectories, classifies steps as deterministic, agent-required, or user-required, and saves readable workflow files that can be edited, versioned, and rerun.
+SOVYN can capture successful tool sequences as editable reusable workflows. It records tool names, safe arguments, result summaries, and whether a step is deterministic, agent-required, or user-required.
 
 ## Local First
 
