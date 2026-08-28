@@ -1,0 +1,30 @@
+[project]
+name = "sovyn-signal-ml"
+version = "0.1.0"
+description = "SOVYN Signal ML dataset, training, and evaluation utilities."
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+]
+training = [
+    "accelerate>=1.14",
+    "bitsandbytes>=0.43; platform_system != 'Windows'",
+    "datasets>=2.21",
+    "peft>=0.12",
+    "safetensors>=0.4",
+    "torch>=2.4",
+    "transformers>=4.51",
+    "trl>=0.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"
+addopts = ["-ra", "--strict-config", "--strict-markers"]

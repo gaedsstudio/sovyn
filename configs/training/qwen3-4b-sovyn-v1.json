@@ -1,0 +1,23 @@
+{
+  "model_config": "configs/models/qwen3-4b.json",
+  "dataset": "ml/datasets/sovyn-v1",
+  "output_dir": "outputs/experiments/exp001-qwen3-4b/adapter",
+  "method": "qlora",
+  "quantization": "4bit_nf4",
+  "compute_dtype": "bfloat16",
+  "lora_rank": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+  "learning_rate": 0.0002,
+  "epochs": 1,
+  "per_device_train_batch_size": 1,
+  "gradient_accumulation": 8,
+  "max_sequence_length": 2048,
+  "warmup_ratio": 0.03,
+  "weight_decay": 0.01,
+  "gradient_checkpointing": true,
+  "optimizer": "paged_adamw_8bit",
+  "checkpoint_limit": 2,
+  "evaluation_strategy": "epoch"
+}

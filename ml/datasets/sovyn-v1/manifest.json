@@ -1,0 +1,32 @@
+{
+  "version": "sovyn-v1",
+  "created_at": "2026-08-27T08:17:23.897924+00:00",
+  "total_examples": 19824,
+  "tasks": {
+    "ask_sovyn": 2500,
+    "event_explanation": 2500,
+    "evidence_filtering": 2414,
+    "impact_classification": 2500,
+    "market_brief": 2496,
+    "supported_claim": 2414,
+    "transmission_chain": 2500,
+    "uncertainty_calibration": 2500
+  },
+  "scenario_families": {
+    "central_bank": 2610,
+    "commodity": 2082,
+    "company": 2076,
+    "crypto": 1554,
+    "employment": 2112,
+    "equity": 3119,
+    "fx": 2057,
+    "inflation": 1052,
+    "rates": 3162
+  },
+  "train": 11712,
+  "validation": 1588,
+  "test": 1322,
+  "challenge": 5202,
+  "rejected": 0,
+  "duplicates": 176
+}

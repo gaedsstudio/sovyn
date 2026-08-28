@@ -1,0 +1,7 @@
+{
+  "model_id": "hf-large-placeholder",
+  "dtype": "bfloat16",
+  "quantization": "8bit or 4bit",
+  "max_length": 8192,
+  "device_requirements": "multi-GPU or high-memory workstation, no automatic download"
+}

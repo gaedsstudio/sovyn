@@ -1,0 +1,7 @@
+{
+  "model_id": "hf-medium-placeholder",
+  "dtype": "bfloat16",
+  "quantization": "4bit",
+  "max_length": 4096,
+  "device_requirements": "24GB GPU recommended, no automatic download"
+}
