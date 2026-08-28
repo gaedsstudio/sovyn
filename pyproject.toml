@@ -1,30 +1,37 @@
 [project]
-name = "sovyn-signal-ml"
+name = "sovyn"
 version = "0.1.0"
-description = "SOVYN Signal ML dataset, training, and evaluation utilities."
+description = "An open-source terminal agent that turns repeated work into reusable workflows."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "SOVYN contributors" }]
 dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.7",
     "pyyaml>=6.0",
+    "rich>=13.7",
+    "typer>=0.12",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.1",
-    "pytest-asyncio>=1.4",
-]
-training = [
-    "accelerate>=1.14",
-    "bitsandbytes>=0.43; platform_system != 'Windows'",
-    "datasets>=2.21",
-    "peft>=0.12",
-    "safetensors>=0.4",
-    "torch>=2.4",
-    "transformers>=4.51",
-    "trl>=0.10",
+    "pytest>=8.0",
 ]
 
+[project.scripts]
+sovyn = "sovyn.cli:entrypoint"
+
+[tool.setuptools.packages.find]
+include = ["sovyn*"]
+
 [tool.pytest.ini_options]
-testpaths = ["tests/python"]
+testpaths = ["tests"]
 pythonpath = ["."]
-asyncio_default_fixture_loop_scope = "function"
 addopts = ["-ra", "--strict-config", "--strict-markers"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

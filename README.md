@@ -1,146 +1,86 @@
-# SOVYN Signal
+# SOVYN
 
-Understand what moved and why.
+An open-source terminal agent that turns repeated work into reusable workflows.
 
-SOVYN Signal is an AI-powered market intelligence system for detecting meaningful changes in market and economic data, ranking those changes by explainable impact, and explaining them from structured evidence.
+> Do it once. SOVYN learns the workflow.
 
-It is not a trading bot, prediction platform, brokerage tool, Bloomberg clone, or generic chatbot. The core pipeline is:
-
-```text
-DATA
-CHANGE DETECTION
-EVENT
-IMPACT GRAPH
-SIGNAL
-EXPLANATION
-```
-
-## Architecture
-
-This is a one-person startup monorepo:
-
-```text
-app/                  Next.js App Router pages and API routes
-components/           Reusable product UI
-lib/market/           Provider interfaces and deterministic demo data
-lib/signals/          Zod schemas and signal types
-lib/ai/               Explanation model abstraction
-engine/               Deterministic signal intelligence pipeline
-supabase/migrations/  Supabase-compatible PostgreSQL schema
-ml/                   Dataset, training, inference, and evaluation utilities
-tests/                TypeScript and Python tests
-```
-
-## How To Run
+## Install
 
 ```bash
-npm install
-npm run dev
+pip install sovyn
 ```
 
-Open `http://localhost:3000/today`.
-
-## Demo Mode
-
-The app works without external API keys. `MockMarketProvider` serves deterministic observations for:
-
-```text
-SPY QQQ NVDA AMD BTC GOLD OIL DXY USD/KRW US2Y US10Y
-```
-
-Today, Asset, Watchlist, Ask, and API routes all use the same deterministic signal pipeline.
-
-## Environment
-
-Copy `.env.example` to `.env.local` and fill only the providers you want to enable. Defaults use mock providers.
+## Run
 
 ```bash
-MARKET_PROVIDER=mock
-AI_PROVIDER=mock
-SOVYN_BASE_MODEL=
-SOVYN_MODEL_CACHE_DIR=
+sovyn
+sovyn "organize the files in this folder"
+sovyn run <workflow>
 ```
 
-## Database
-
-The initial Supabase-compatible schema is in:
-
-```text
-supabase/migrations/0001_signal_schema.sql
-```
-
-It defines users, assets, observations, events, event links, impact rules, signals, watchlists, and AI explanations with the required indexes.
-
-## Signal Pipeline
-
-The deterministic engine lives under `engine/`:
-
-1. `detector` computes absolute change, percentage change, volatility, z-score, percentile, and significance.
-2. `events` converts significant moves into typed market events.
-3. `rules` maps events to affected market groups.
-4. `scoring` calculates component impact scores.
-5. `pipeline` ranks final signals.
-
-Scores prioritize events. They are not claims of predictive validity or proven causality.
-
-## AI Generation
-
-The web app depends on an `ExplanationModel` interface:
-
-```ts
-interface ExplanationModel {
-  explain(context: SignalContext): Promise<Explanation>
-}
-```
-
-Implemented models:
-
-```text
-MockExplanationModel
-ExternalLLMModel
-SovynFineTunedModel
-```
-
-LLMs explain supplied context only. They are not the decision engine.
-
-## Fine-Tuning Pipeline
-
-The ML workspace supports storage-safe LoRA/QLoRA readiness:
+## Demo
 
 ```bash
-python -m ml.datasets.generate
-python -m ml.training.train --dry-run --method qlora
-python -m ml.evaluation.run
-python scripts/cleanup_training_artifacts.py
+sovyn demo
 ```
-
-Dataset tasks:
 
 ```text
-event_explanation
-impact_classification
-evidence_grounding
+◇ Inspecting workspace...
+◆ 184 files indexed
+◇ Checking project structure...
+◆ Python project detected
+◇ Running tests...
+◆ Tests completed
+◇ Investigating...
+◆ Suggested patch ready
+! Apply changes? [Y/n]
 ```
 
-The training command defaults to adapter output at:
+## Why Workflows
+
+SOVYN records successful tool trajectories, classifies steps as deterministic, agent-required, or user-required, and saves readable workflow files that can be edited, versioned, and rerun.
+
+## Local First
+
+SOVYN stores local state in `~/.sovyn/`:
 
 ```text
-outputs/sovyn-signal-adapter/
+config.toml
+sovyn.db
+memory/
+workflows/
+sessions/
+logs/
+cache/
 ```
 
-It does not automatically merge a full model.
+Ollama is the preferred local provider. Bring-your-own-key providers can be configured for OpenAI-compatible APIs and Anthropic.
 
-## Tests
+## Permissions
+
+SOVYN separates safe inspection from actions that need confirmation. Reads, Git status, and diffs are safe. File writes, package installs, commits, network writes, moves, and deletes require approval or fail in non-interactive mode.
+
+## Commands
 
 ```bash
-npm run test
-npm run typecheck
-python -m pytest
+sovyn
+sovyn "<task>"
+sovyn run <workflow>
+sovyn workflows
+sovyn sessions
+sovyn memory
+sovyn config
+sovyn doctor
+sovyn undo
+sovyn version
 ```
 
-Tests do not require external API keys or multi-GB model downloads.
+## Community
 
-## Deployment
+- GitHub: GITHUB_URL
+- Documentation: DOCUMENTATION_URL
+- Discord: DISCORD_INVITE_URL
 
-Deploy the Next.js app as a normal App Router project. Use Supabase for PostgreSQL when persistence is needed. Keep model weights and generated artifacts outside Git; `.gitignore` blocks common model and checkpoint paths.
+## Contributing
 
+See `.github/CONTRIBUTING.md`.

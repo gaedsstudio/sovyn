@@ -1,7 +1,0 @@
-{
-  "model_id": "hf-small-placeholder",
-  "dtype": "bfloat16",
-  "quantization": "4bit",
-  "max_length": 2048,
-  "device_requirements": "single developer GPU, adapter-only benchmark"
-}
