@@ -11,7 +11,7 @@
     "build": "next build",
     "cf:build": "opennextjs-cloudflare build",
     "preview": "wrangler dev",
-    "deploy": "opennextjs-cloudflare deploy"
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "next": "^16.3.3",

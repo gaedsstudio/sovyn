@@ -4,6 +4,8 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-29",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": true,
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets"
@@ -12,6 +14,20 @@
     {
       "binding": "WORKER_SELF_REFERENCE",
       "service": "sovyn-org"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "sovyn.org/*",
+      "zone_name": "sovyn.org"
+    },
+    {
+      "pattern": "www.sovyn.org/*",
+      "zone_name": "sovyn.org"
+    },
+    {
+      "pattern": "hub.sovyn.org",
+      "custom_domain": true
     }
   ],
   "observability": {
