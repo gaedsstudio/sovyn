@@ -1,7 +1,7 @@
 [project]
 name = "sovyn"
-version = "0.1.0"
-description = "An open-source terminal agent that turns repeated work into reusable workflows."
+version = "0.1.0a1"
+description = "SOVYN is an open-source terminal agent that executes local tools with explicit permissions and turns successful work into reusable workflows."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -13,14 +13,26 @@ dependencies = [
     "rich>=13.7",
     "typer>=0.12",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-timeout>=2.3",
 ]
 
 [project.scripts]
 sovyn = "sovyn.cli:entrypoint"
+
+[project.urls]
+Repository = "https://github.com/gaedsstudio/sovyn"
+Issues = "https://github.com/gaedsstudio/sovyn/issues"
 
 [tool.setuptools.packages.find]
 include = ["sovyn*"]
@@ -28,7 +40,7 @@ include = ["sovyn*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = ["-ra", "--strict-config", "--strict-markers"]
+addopts = ["-ra", "--strict-config", "--strict-markers", "--timeout=30", "--timeout-method=thread"]
 
 [tool.ruff]
 line-length = 120

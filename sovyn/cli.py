@@ -1,17 +1,18 @@
-from pathlib import Path
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 import typer
 
 from sovyn import __version__
 from sovyn.agent import AgentRuntime, run_agent
-from sovyn.config import load_config, write_default_config
+from sovyn.cli_provider import register_provider_commands
+from sovyn.config import ModelSettings, load_config, write_config, write_default_config
 from sovyn.demo import run_demo
-from sovyn.doctor import run_doctor
+from sovyn.fallback import cloud_context_summary, confirm_fallback, split_model_ref
 from sovyn.memory import add_memory, forget_memory, list_memory
 from sovyn.paths import default_paths
-from sovyn.provider_init import ProviderStatus
+from sovyn.provider_init import ProviderStatus, resolve_provider
 from sovyn.providers import AnthropicProvider, MockProvider, OllamaProvider, OpenAICompatibleProvider
 from sovyn.repl import run_repl
 from sovyn.runtime import boot
@@ -23,8 +24,9 @@ from sovyn.workflows import list_workflows, load_workflow
 from sovyn.workflow_runner import run_workflow
 
 app = typer.Typer(add_completion=False, no_args_is_help=False, context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+register_provider_commands(app)
 
-KNOWN_COMMANDS = {"run", "workflow", "workflows", "session", "sessions", "memory", "config", "doctor", "undo", "demo", "version"}
+KNOWN_COMMANDS = {"run", "workflow", "workflows", "session", "sessions", "memory", "config", "doctor", "provider", "bench", "undo", "demo", "version"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,8 +85,26 @@ def _run_one_shot(task: str, flags: OneShotFlags) -> None:
     renderer = runtime.renderer
     renderer.line(DiamondState.COMPLETED, f"SOVYN {__version__}")
     if runtime.provider.status is ProviderStatus.UNAVAILABLE and config.model.provider != "mock":
-        renderer.line(DiamondState.FAILED, runtime.provider.detail)
-        return
+        fallback_used = False
+        if config.model.fallback:
+            provider_name, model_name = split_model_ref(config.model.fallback)
+            if provider_name and model_name:
+                summary = cloud_context_summary(paths.workspace)
+                label = f"{provider_name} / {model_name}"
+                if confirm_fallback(runtime.interaction, label, summary):
+                    fallback = resolve_provider(ModelSettings(provider=provider_name, model=model_name, primary="", fallback=""))
+                    if fallback.status is ProviderStatus.READY:
+                        runtime = replace(runtime, provider=fallback)
+                        fallback_used = True
+                    else:
+                        renderer.line(DiamondState.FAILED, fallback.detail)
+                        return
+                else:
+                    renderer.line(DiamondState.FAILED, "Provider fallback denied")
+                    return
+        if not fallback_used:
+            _show_provider_unavailable(renderer, runtime.provider.detail)
+            return
     result = run_agent(
         task,
         AgentRuntime(runtime.provider.provider, runtime.store, renderer, paths.workspace, runtime.interaction),
@@ -161,19 +181,22 @@ def session(session_id: int) -> None:
 def memory(action: str = "show", note: str | None = None, category: str = "explicitly saved notes") -> None:
     paths = default_paths()
     store = Store(paths.database)
-    match action:
-        case "show":
-            for record in list_memory(store):
-                typer.echo(f"{record.id} {record.category}: {record.note}")
-        case "add":
-            if note is None:
-                raise typer.BadParameter("memory add requires a note")
-            typer.echo(f"saved {add_memory(store, category, note)}")
-        case "forget":
-            if note is None:
-                raise typer.BadParameter("memory forget requires an id")
-            forget_memory(store, int(note))
-            typer.echo("forgotten")
+    if action == "show":
+        for record in list_memory(store):
+            typer.echo(f"{record.id} {record.category}: {record.note}")
+        return
+    if action == "add":
+        if note is None:
+            raise typer.BadParameter("memory add requires a note")
+        typer.echo(f"saved {add_memory(store, category, note)}")
+        return
+    if action == "forget":
+        if note is None:
+            raise typer.BadParameter("memory forget requires an id")
+        forget_memory(store, int(note))
+        typer.echo("forgotten")
+        return
+    raise typer.BadParameter(f"unknown memory action: {action}")
 
 
 @app.command()
@@ -182,22 +205,24 @@ def config(action: str = "show") -> None:
     paths.ensure()
     if not paths.config.exists():
         write_default_config(paths.config)
-    match action:
-        case "show":
-            typer.echo(paths.config.read_text(encoding="utf-8"))
-        case _:
-            typer.echo(paths.config)
-
-
-@app.command()
-def doctor() -> None:
-    runtime = boot(sys.stdin, sys.stdout, interactive=False)
-    paths = runtime.paths
-    renderer = runtime.renderer
-    renderer.line(DiamondState.COMPLETED, "SOVYN Doctor")
-    for check in run_doctor(paths, runtime.config, runtime.provider):
-        state = DiamondState.COMPLETED if check.ok else DiamondState.FAILED
-        renderer.line(state, f"{check.name:<18} {check.detail}")
+    if action == "show":
+        typer.echo(paths.config.read_text(encoding="utf-8"))
+        return
+    if action == "select":
+        runtime = boot(sys.stdin, sys.stdout, interactive=sys.stdout.isatty())
+        ollama = resolve_provider(ModelSettings(provider="ollama", model=runtime.config.model.model))
+        if not ollama.models:
+            typer.echo("No Ollama models discovered. Start Ollama or edit the config manually.")
+            return
+        typer.echo("Installed local models")
+        for index, model in enumerate(ollama.models, start=1):
+            typer.echo(f"{index}. {model}")
+        answer = typer.prompt("Select model number", default="1")
+        selected = ollama.models[max(0, min(int(answer) - 1, len(ollama.models) - 1))]
+        write_config(paths.config, replace(runtime.config, model=ModelSettings(provider="ollama", model=selected)))
+        typer.echo(f"Selected ollama/{selected}")
+        return
+    typer.echo(paths.config)
 
 
 @app.command()
@@ -216,14 +241,22 @@ def version_command() -> None:
 
 
 def _provider(provider: str, model: str):
-    match provider:
-        case "mock":
-            return MockProvider()
-        case "ollama":
-            return OllamaProvider(model=model)
-        case "openai-compatible" | "openai":
-            return OpenAICompatibleProvider(model=model, api_key="", base_url="https://api.openai.com/v1", provider_name=provider)
-        case "anthropic":
-            return AnthropicProvider(model=model, api_key="")
-        case _:
-            return MockProvider(name=f"mock/{model}")
+    if provider == "mock":
+        return MockProvider()
+    if provider == "ollama":
+        return OllamaProvider(model=model)
+    if provider in {"openai-compatible", "openai"}:
+        return OpenAICompatibleProvider(model=model, api_key="", base_url="https://api.openai.com/v1", provider_name=provider)
+    if provider == "anthropic":
+        return AnthropicProvider(model=model, api_key="")
+    return MockProvider(name=f"mock/{model}")
+
+
+def _show_provider_unavailable(renderer: Renderer, detail: str) -> None:
+    renderer.line(DiamondState.FAILED, "Ollama unavailable")
+    renderer.line(DiamondState.WAITING, detail)
+    renderer.line(DiamondState.WAITING, "Options:")
+    renderer.line(DiamondState.WAITING, "1. Install Ollama")
+    renderer.line(DiamondState.WAITING, "2. Configure OpenAI")
+    renderer.line(DiamondState.WAITING, "3. Configure Anthropic")
+    renderer.line(DiamondState.WAITING, "4. Configure an OpenAI-compatible endpoint")

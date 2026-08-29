@@ -1,0 +1,62 @@
+# SOVYN demo recording script
+
+Target length: 30-45 seconds.
+
+Do not cut away the workspace trust prompt or file-write permission prompt. The point of the demo is to show the real permission UX.
+
+## Setup
+
+```bash
+mkdir sovyn-demo
+cd sovyn-demo
+git init
+sovyn
+```
+
+## Recording flow
+
+1. Start SOVYN in the empty Git workspace.
+2. Enter:
+
+   ```text
+   create hello.txt containing Hello from SOVYN
+   ```
+
+3. Approve the workspace trust prompt.
+4. Approve the `hello.txt` write prompt with `y`.
+5. Show the successful file creation message.
+6. Save the successful task as a workflow when prompted.
+7. Use workflow name:
+
+   ```text
+   hello-file
+   ```
+
+8. Exit SOVYN.
+9. Replay the workflow:
+
+   ```bash
+   sovyn run hello-file
+   ```
+
+10. Show `hello.txt` exists:
+
+   ```bat
+   type hello.txt
+   ```
+
+## Optional tooling
+
+If `asciinema` is available:
+
+```bash
+asciinema rec docs/assets/sovyn-demo.cast
+```
+
+If VHS is already installed:
+
+```bash
+vhs docs/assets/sovyn-demo.tape
+```
+
+Do not install large recording tooling just for the release. If no recorder is available, keep this script as the source of truth and omit broken image links.

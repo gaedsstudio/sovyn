@@ -1,11 +1,11 @@
 from dataclasses import dataclass, replace
 from enum import StrEnum, unique
 from pathlib import Path
-from typing import Protocol, TextIO
+from typing import Protocol, TextIO, assert_never
 
 from sovyn.config import SovynConfig
 from sovyn.diffing import DiffPreview
-from sovyn.permissions import PermissionDecision, PermissionRequest, decide_permission
+from sovyn.permissions import ActionKind, PermissionDecision, PermissionRequest, decide_permission
 from sovyn.storage import grant_permission, has_permission_grant
 from sovyn.trust import WorkspaceTrust
 from sovyn.ui import DiamondState, Renderer
@@ -71,6 +71,32 @@ class Interaction:
                 return Approval.DENY
             case PermissionDecision.ASK:
                 return self._ask_permission(request, diff)
+            case unreachable:
+                assert_never(unreachable)
+
+    def approve_network(self, method: str, url: str, host: str) -> Approval:
+        request = PermissionRequest(ActionKind.NETWORK_READ, f"{method} {host}")
+        if has_permission_grant(self.trust.store, request.action.value, host):
+            return Approval.ALWAYS
+        decision = decide_permission(self.config.permissions, request, self.interactive)
+        match decision:
+            case PermissionDecision.ALLOW:
+                return Approval.ONCE
+            case PermissionDecision.BLOCK:
+                return Approval.DENY
+            case PermissionDecision.ASK:
+                self.renderer.line(DiamondState.ATTENTION, "Network access")
+                self.renderer.line(DiamondState.WAITING, method)
+                self.renderer.line(DiamondState.WAITING, url)
+                answer = self.prompter.ask("[y] once  [a] always for this host  [n] deny: ").lower()
+                if answer == "a":
+                    grant_permission(self.trust.store, request.action.value, host)
+                    return Approval.ALWAYS
+                if answer in {"y", "yes", ""}:
+                    return Approval.ONCE
+                return Approval.DENY
+            case unreachable:
+                assert_never(unreachable)
 
     def offer_workflow(self, workflow: Workflow, workflows_dir: Path) -> bool:
         if not self.interactive:

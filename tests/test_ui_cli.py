@@ -4,6 +4,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from sovyn.cli import app
+from sovyn.cli import _show_provider_unavailable
 from sovyn.provider_init import ProviderStatus, resolve_provider
 from sovyn.config import ModelSettings
 from sovyn.ui import DiamondState, FRAMES, Renderer
@@ -52,3 +53,13 @@ def test_ollama_resolution_reports_unavailable_without_network(monkeypatch) -> N
     resolution = resolve_provider(ModelSettings("ollama", "qwen3:8b"), failing_get)
 
     assert resolution.status is ProviderStatus.UNAVAILABLE
+
+
+def test_provider_unavailable_message_lists_recovery_options() -> None:
+    stream = StringIO()
+    renderer = Renderer(stream, interactive=False)
+
+    _show_provider_unavailable(renderer, "ollama command not found")
+
+    assert "Ollama unavailable" in stream.getvalue()
+    assert "Configure Anthropic" in stream.getvalue()

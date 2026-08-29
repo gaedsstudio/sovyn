@@ -12,6 +12,12 @@ class ToolResult:
     name: str
     summary: str
     output: str = ""
+    tool_call_id: str = ""
+    success: bool = True
+    error: str = ""
+
+    def with_call(self, tool_call_id: str) -> "ToolResult":
+        return ToolResult(self.name, self.summary, self.output, tool_call_id, self.success, self.error)
 
 
 def list_files(workspace: Path) -> ToolResult:
@@ -63,8 +69,8 @@ def git_log(workspace: Path) -> ToolResult:
     return ToolResult("git.log", f"{len(lines)} commits", result.stdout)
 
 
-def shell_run(workspace: Path, command: tuple[str, ...]) -> ToolResult:
-    result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, check=False)
+def shell_run(workspace: Path, command: str) -> ToolResult:
+    result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, check=False, shell=True)
     return ToolResult("shell.run", f"exit {result.returncode}", result.stdout + result.stderr)
 
 

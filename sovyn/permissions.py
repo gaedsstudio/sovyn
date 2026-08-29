@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum, unique
+from typing import assert_never
 
 from sovyn.config import PermissionPolicy, PermissionSettings
 
@@ -9,6 +10,7 @@ class ActionKind(StrEnum):
     READ_FILES = "read_files"
     WRITE_FILES = "write_files"
     SHELL = "shell"
+    NETWORK_READ = "network_read"
     DELETE_FILES = "delete_files"
     GIT_COMMIT = "git_commit"
 
@@ -38,3 +40,5 @@ def decide_permission(settings: PermissionSettings, request: PermissionRequest, 
             return PermissionDecision.ASK if interactive else PermissionDecision.BLOCK
         case PermissionPolicy.BLOCK:
             return PermissionDecision.BLOCK
+        case unreachable:
+            assert_never(unreachable)

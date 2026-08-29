@@ -42,7 +42,10 @@ def _migrate(connection: sqlite3.Connection) -> None:
         "arguments TEXT NOT NULL,"
         "result_summary TEXT NOT NULL,"
         "classification TEXT NOT NULL,"
-        "duration_seconds REAL NOT NULL"
+        "duration_seconds REAL NOT NULL,"
+        "tool_call_id TEXT NOT NULL DEFAULT '',"
+        "success INTEGER NOT NULL DEFAULT 1,"
+        "error TEXT NOT NULL DEFAULT ''"
         ");"
         "CREATE TABLE IF NOT EXISTS trusted_workspaces ("
         "path TEXT PRIMARY KEY"
@@ -53,6 +56,14 @@ def _migrate(connection: sqlite3.Connection) -> None:
         "PRIMARY KEY (action, description)"
         ");"
     )
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(trajectory_steps)").fetchall()}
+    for name, definition in (
+        ("tool_call_id", "TEXT NOT NULL DEFAULT ''"),
+        ("success", "INTEGER NOT NULL DEFAULT 1"),
+        ("error", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if name not in columns:
+            connection.execute(f"ALTER TABLE trajectory_steps ADD COLUMN {name} {definition}")
     connection.commit()
 
 
@@ -65,10 +76,10 @@ def record_trajectory(
     with store.connect() as connection:
         connection.executemany(
             "INSERT INTO trajectory_steps "
-            "(session_id, step_index, tool, arguments, result_summary, classification, duration_seconds) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(session_id, step_index, tool, arguments, result_summary, classification, duration_seconds, tool_call_id, success, error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             tuple(
-                (session_id, index, tool.name, "{}", tool.summary, classification, 0.0)
+                (session_id, index, tool.name, "{}", tool.summary, classification, 0.0, tool.tool_call_id, int(tool.success), tool.error)
                 for index, tool in enumerate(tools, start=1)
             ),
         )

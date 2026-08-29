@@ -1,17 +1,21 @@
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 from time import perf_counter
 
 import anyio
 
-from sovyn.diffing import preview_write
-from sovyn.interaction import Approval, Interaction
-from sovyn.permissions import ActionKind, PermissionRequest
+from sovyn.interaction import Interaction
+from sovyn.loop_guard import LoopGuard
+from sovyn.providers import ProviderError
 from sovyn.providers import ModelProvider
 from sovyn.sessions import create_session
 from sovyn.storage import Store, record_trajectory
-from sovyn.tools import ToolResult, git_diff, git_log, git_status, list_files, write_file
+from sovyn.config import DEFAULT_CONFIG
+from sovyn.tool_protocol import ProviderTurn, ToolCall
+from sovyn.tool_registry import ToolValidationError, execute_validated_tool, tool_schemas, validate_tool_call
+from sovyn.tools import ToolResult, list_files
 from sovyn.ui import DiamondState, Renderer
 from sovyn.workflows import StepKind, Workflow, WorkflowStep, workflow_from_steps
 
@@ -34,13 +38,6 @@ class AgentRuntime:
     interaction: Interaction | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class ToolCall:
-    name: str
-    argument: str = ""
-    content: str = ""
-
-
 def run_agent(request: str, runtime: AgentRuntime) -> AgentResult:
     started = perf_counter()
     if runtime.interaction is not None and not runtime.interaction.ensure_workspace_trusted(runtime.workspace):
@@ -51,10 +48,10 @@ def run_agent(request: str, runtime: AgentRuntime) -> AgentResult:
     runtime.renderer.line(DiamondState.WAITING, "Reading workspace...")
     first = list_files(runtime.workspace)
     runtime.renderer.line(DiamondState.COMPLETED, first.summary)
-    calls = _plan_calls(request)
-    tools = _execute_calls(calls, runtime, (first,))
+    calls, tools, response = _run_model_loop(request, runtime, first)
     runtime.renderer.line(DiamondState.WAITING, "Preparing response...")
-    response = _stream_response(runtime.provider, _context_prompt(request, tools), runtime.renderer)
+    if response:
+        runtime.renderer.stream_text(response)
     duration = perf_counter() - started
     session_id = create_session(runtime.store, request, "success", len(tools), duration)
     record_trajectory(runtime.store, session_id, tools)
@@ -63,68 +60,59 @@ def run_agent(request: str, runtime: AgentRuntime) -> AgentResult:
     return AgentResult(session_id=session_id, response=response, tools=tools, duration_seconds=duration, workflow=workflow)
 
 
-def _execute_calls(calls: tuple[ToolCall, ...], runtime: AgentRuntime, initial: tuple[ToolResult, ...]) -> tuple[ToolResult, ...]:
-    results = list(initial)
-    for index, call in enumerate(calls, start=1):
-        if index > 30:
-            runtime.renderer.line(DiamondState.FAILED, "Step limit reached")
-            break
-        result = _execute_call(call, runtime)
-        if result is not None:
+def _run_model_loop(request: str, runtime: AgentRuntime, first: ToolResult) -> tuple[tuple[ToolCall, ...], tuple[ToolResult, ...], str]:
+    results: list[ToolResult] = [first]
+    calls: list[ToolCall] = []
+    guard = LoopGuard(limit=3)
+    feedback = ""
+    config = runtime.interaction.config if runtime.interaction is not None else DEFAULT_CONFIG
+    for step in range(1, 1 + config.agent.max_steps):
+        try:
+            turn = _model_turn(runtime.provider, _context_prompt(request, tuple(results), feedback), runtime.renderer)
+        except ProviderError as exc:
+            runtime.renderer.line(DiamondState.FAILED, f"Provider unavailable: {exc.detail}")
+            return tuple(calls), tuple(results), f"Provider unavailable: {exc.detail}"
+        if not turn.tool_calls:
+            return tuple(calls), tuple(results), turn.content
+        feedback = ""
+        for call in turn.tool_calls:
+            calls.append(call)
+            loop = guard.observe(call.name, json.dumps(call.arguments, sort_keys=True))
+            if loop is not None:
+                runtime.renderer.line(DiamondState.ATTENTION, loop)
+                return tuple(calls), tuple(results), loop
+            result = _execute_tool_call(call, runtime)
             results.append(result)
-    return tuple(results)
+            if not result.success:
+                feedback = _tool_rejection_feedback(result)
+        if step == config.agent.max_steps:
+            runtime.renderer.line(DiamondState.FAILED, "Step limit reached")
+    return tuple(calls), tuple(results), "Step limit reached"
 
 
-def _execute_call(call: ToolCall, runtime: AgentRuntime) -> ToolResult | None:
-    match call.name:
-        case "filesystem.write":
-            path = (runtime.workspace / call.argument).resolve()
-            preview = preview_write(path, call.content)
-            request = PermissionRequest(ActionKind.WRITE_FILES, f"Create or modify {path.name}")
-            if runtime.interaction is not None and runtime.interaction.approve(request, preview) is Approval.DENY:
-                runtime.renderer.line(DiamondState.ATTENTION, "Write denied")
-                return None
-            runtime.renderer.line(DiamondState.WAITING, f"Writing {path.name}")
-            result = write_file(path, call.content)
-            runtime.renderer.line(DiamondState.COMPLETED, result.summary)
-            return result
-        case "git.status":
-            runtime.renderer.line(DiamondState.WAITING, "Reading Git status...")
-            result = git_status(runtime.workspace)
-            runtime.renderer.line(DiamondState.COMPLETED, result.summary)
-            return result
-        case "git.diff":
-            runtime.renderer.line(DiamondState.WAITING, "Reading Git diff...")
-            result = git_diff(runtime.workspace)
-            runtime.renderer.line(DiamondState.COMPLETED, result.summary)
-            return result
-        case "git.log":
-            runtime.renderer.line(DiamondState.WAITING, "Reading Git history...")
-            result = git_log(runtime.workspace)
-            runtime.renderer.line(DiamondState.COMPLETED, result.summary)
-            return result
-        case _:
-            return None
+def _execute_tool_call(call: ToolCall, runtime: AgentRuntime) -> ToolResult:
+    try:
+        validated = validate_tool_call(call)
+    except ToolValidationError as exc:
+        runtime.renderer.line(DiamondState.FAILED, "Tool call rejected")
+        runtime.renderer.line(DiamondState.WAITING, call.name)
+        runtime.renderer.line(DiamondState.WAITING, f"Reason: {exc}")
+        return ToolResult(call.name, "tool rejected", tool_call_id=call.id, success=False, error=str(exc))
+    runtime.renderer.line(DiamondState.WAITING, f"Running {validated.name}")
+    result = execute_validated_tool(validated, runtime.workspace, runtime.interaction)
+    state = DiamondState.COMPLETED if result.success else DiamondState.FAILED
+    runtime.renderer.line(state, result.summary)
+    return result
 
 
-def _plan_calls(request: str) -> tuple[ToolCall, ...]:
-    lowered = request.lower()
-    file_match = re.search(r"create a file called ([^ ]+) containing (.+)", request, flags=re.IGNORECASE)
-    if file_match is not None:
-        return (ToolCall("filesystem.write", file_match.group(1), file_match.group(2)),)
-    if "changed" in lowered or "status" in lowered:
-        return (ToolCall("git.status"), ToolCall("git.diff"))
-    if "commit" in lowered or "changelog" in lowered:
-        return (ToolCall("git.log"),)
-    return (ToolCall("git.status"),)
-
-
-def _stream_response(provider: ModelProvider, prompt: str, renderer: Renderer) -> str:
+def _model_turn(provider: ModelProvider, prompt: str, renderer: Renderer) -> ProviderTurn:
+    turn = anyio.run(provider.turn, prompt, tool_schemas())
+    if turn.content and not turn.tool_calls:
+        return turn
+    if turn.tool_calls:
+        return turn
     chunks = anyio.run(_collect_stream, provider, prompt)
-    response = "".join(chunks)
-    if response:
-        renderer.stream_text(response)
-    return response
+    return ProviderTurn("".join(chunks))
 
 
 async def _collect_stream(provider: ModelProvider, prompt: str) -> tuple[str, ...]:
@@ -134,9 +122,27 @@ async def _collect_stream(provider: ModelProvider, prompt: str) -> tuple[str, ..
     return tuple(chunks)
 
 
-def _context_prompt(request: str, tools: tuple[ToolResult, ...]) -> str:
-    observations = "\n".join(f"{tool.name}: {tool.summary}" for tool in tools)
-    return f"User request: {request}\nTool observations:\n{observations}\nReturn a concise final answer."
+def _context_prompt(request: str, tools: tuple[ToolResult, ...], feedback: str = "") -> str:
+    observations = "\n".join(_tool_observation(tool) for tool in tools[-8:])
+    tool_names = ", ".join(schema.name for schema in tool_schemas())
+    return (
+        f"User request: {request}\n"
+        f"Available tools: {tool_names}\n"
+        f"Tool observations:\n{observations}\n"
+        f"{feedback}\n"
+        "Use native tool calls when available. In compatibility mode, emit exactly one <tool>{...}</tool> block. "
+        "Return a concise final answer when the task is complete."
+    )
+
+
+def _tool_observation(tool: ToolResult) -> str:
+    output = tool.output[:400]
+    suffix = " [truncated]" if len(tool.output) > 400 else ""
+    return f"{tool.name}: {tool.summary} {output}{suffix}".strip()
+
+
+def _tool_rejection_feedback(result: ToolResult) -> str:
+    return f"Tool call rejected\n{result.name}\nReason:\n{result.error}\nCorrect the arguments or stop."
 
 
 def _workflow_name(request: str) -> str:
@@ -146,6 +152,6 @@ def _workflow_name(request: str) -> str:
 
 def _workflow_steps(calls: tuple[ToolCall, ...]) -> tuple[WorkflowStep, ...]:
     return tuple(
-        WorkflowStep(call.name, StepKind.DETERMINISTIC, f"Run {call.name}", call.argument, call.content)
+        WorkflowStep(call.name, StepKind.DETERMINISTIC, f"Run {call.name}", str(call.arguments.get("path", "")), str(call.arguments.get("content", "")))
         for call in calls
     )

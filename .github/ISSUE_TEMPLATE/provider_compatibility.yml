@@ -1,0 +1,73 @@
+name: Provider compatibility
+description: Report model/provider behavior with SOVYN tool calling.
+title: "[Provider]: "
+labels: ["provider", "compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste API keys, bearer tokens, `.env` files, or private workspace contents.
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: Windows 11, macOS 15, Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: input
+    id: sovyn
+    attributes:
+      label: SOVYN version
+      placeholder: "0.1.0a1"
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      placeholder: Ollama, OpenAI-compatible, Anthropic
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: qwen3:8b, gpt-4.1-mini, claude-...
+    validations:
+      required: true
+  - type: dropdown
+    id: native_tools
+    attributes:
+      label: Native tool support
+      options:
+        - Supported by this model/provider
+        - Not supported by this model/provider
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: provider_test
+    attributes:
+      label: "`sovyn provider test` output"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor_providers
+    attributes:
+      label: "`sovyn doctor --providers` output"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Include model behavior, tool-call format issues, or unexpected errors. Redact secrets.
