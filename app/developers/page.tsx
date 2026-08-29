@@ -3,14 +3,16 @@ import { TerminalPanel } from "../../components/site";
 export default function DevelopersPage() {
   return (
     <section className="rail section">
-      <p className="eyebrow">Developer ecosystem</p>
-      <h1 className="headline">
-        Packages, manifests, permissions, and future CLI integration.
-      </h1>
-      <p className="lead">
-        SOVYN Hub is the optional network layer. Normal SOVYN usage stays
-        local-first and should keep working offline.
-      </p>
+      <div className="section-heading">
+        <p className="eyebrow">Developer ecosystem</p>
+        <h1 className="headline">
+          Packages, manifests, permissions, and future CLI integration.
+        </h1>
+        <p className="lead">
+          SOVYN Hub is the optional network layer. Normal SOVYN usage stays
+          local-first and should keep working offline.
+        </p>
+      </div>
       <div className="grid">
         <div className="card">
           <h2>Future CLI surface</h2>

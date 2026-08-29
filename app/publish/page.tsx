@@ -12,15 +12,17 @@ const requirements = [
 export default function PublishPage() {
   return (
     <section className="rail section">
-      <p className="eyebrow">Publish</p>
-      <h1 className="headline">Submit source people can inspect.</h1>
-      <p className="lead">
-        SOVYN Hub v0.1 uses GitHub Issues and Pull Requests for package
-        submissions. It does not accept arbitrary code uploads.
-      </p>
+      <div className="section-heading">
+        <p className="eyebrow">Publish</p>
+        <h1 className="headline">Submit source people can inspect.</h1>
+        <p className="lead">
+          SOVYN Hub v0.1 uses GitHub Issues and Pull Requests for package
+          submissions. It does not accept arbitrary code uploads.
+        </p>
+      </div>
       <div className="grid">
         {requirements.map((item, index) => (
-          <article className="card" key={item}>
+          <article className="card feature-card" key={item}>
             <p className="eyebrow">Requirement {index + 1}</p>
             <h2>{item}</h2>
           </article>

@@ -3,13 +3,15 @@ import { TerminalPanel } from "../../components/site";
 export default function SecurityPage() {
   return (
     <section className="rail section">
-      <p className="eyebrow">Security model</p>
-      <h1 className="headline">Verified is review, not a guarantee.</h1>
-      <p className="lead">
-        Users should evaluate source repositories, publisher status, license,
-        manifest, permissions, network access, and release integrity before
-        running packages.
-      </p>
+      <div className="section-heading">
+        <p className="eyebrow">Security model</p>
+        <h1 className="headline">Verified is review, not a guarantee.</h1>
+        <p className="lead">
+          Users should evaluate source repositories, publisher status, license,
+          manifest, permissions, network access, and release integrity before
+          running packages.
+        </p>
+      </div>
       <div className="grid">
         <div className="card">
           <h2>Review chain</h2>

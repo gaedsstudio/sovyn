@@ -7,16 +7,18 @@ export default function CommunityPage() {
   );
   return (
     <section className="rail section">
-      <p className="eyebrow">Community registry</p>
-      <h1 className="headline">
-        Open-source packages should remain inspectable.
-      </h1>
-      <p className="lead">
-        Community packages require public source, an open-source license,
-        package metadata, and an explicit permission manifest. v0.1 submissions
-        happen through GitHub Issues or Pull Requests, not arbitrary code
-        upload.
-      </p>
+      <div className="section-heading">
+        <p className="eyebrow">Community registry</p>
+        <h1 className="headline">
+          Open-source packages should remain inspectable.
+        </h1>
+        <p className="lead">
+          Community packages require public source, an open-source license,
+          package metadata, and an explicit permission manifest. v0.1
+          submissions happen through GitHub Issues or Pull Requests, not
+          arbitrary code upload.
+        </p>
+      </div>
       {communityPackages.length === 0 ? (
         <div className="card">
           <h2>No community packages yet.</h2>

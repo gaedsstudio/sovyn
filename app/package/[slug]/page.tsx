@@ -26,11 +26,13 @@ export default async function PackagePage({ params }: PackagePageProps) {
   const publisher = getPublisher(item.publisher);
   return (
     <section className="rail section">
-      <p className="eyebrow">
-        {item.status === "verified" ? "◈ Verified" : "◇ Community"}
-      </p>
-      <h1 className="headline">{item.name}</h1>
-      <p className="lead">{item.description}</p>
+      <div className="section-heading">
+        <p className="eyebrow">
+          {item.status === "verified" ? "Verified" : "Community"}
+        </p>
+        <h1 className="headline">{item.name}</h1>
+        <p className="lead">{item.description}</p>
+      </div>
       <div className="grid">
         <div className="card">
           <h2>Source</h2>

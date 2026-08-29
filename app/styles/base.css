@@ -1,0 +1,76 @@
+:root {
+  --surface-canvas: #fafafa;
+  --surface-panel: #ffffff;
+  --surface-raised: #f8fafc;
+  --surface-inset: #0f172a;
+  --text-primary: #020617;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --border-default: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --accent: #ff542e;
+  --accent-hover: #e04420;
+  --accent-soft: #fff1ee;
+  --success: #059669;
+  --warning: #d97706;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+  background: var(--surface-canvas);
+  font-family:
+    var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "cv01", "ss03";
+}
+
+body {
+  margin: 0;
+  background: var(--surface-canvas);
+  color: var(--text-secondary);
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+code,
+pre,
+kbd {
+  font-family:
+    var(--font-mono), "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+ul {
+  color: var(--text-muted);
+  line-height: 1.7;
+}

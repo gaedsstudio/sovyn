@@ -14,25 +14,25 @@ export default async function HubPage({ searchParams }: HubPageProps) {
   const packages = searchPackages(query);
   return (
     <section className="rail section">
-      <p className="eyebrow">SOVYN Hub</p>
-      <h1 className="headline">
-        Inspectable packages for local-first automation.
-      </h1>
-      <p className="lead">
-        Search first-party and community SOVYN packages by name, publisher,
-        tags, and declared purpose.
-      </p>
+      <div className="section-heading">
+        <p className="eyebrow">SOVYN Hub</p>
+        <h1 className="headline">
+          Inspectable packages for local-first automation.
+        </h1>
+        <p className="lead">
+          Search first-party and community SOVYN packages by name, publisher,
+          tags, and declared purpose.
+        </p>
+      </div>
       <form className="search" action="/hub">
-        <label className="eyebrow" htmlFor="hub-search">
-          Search
-        </label>
+        <label htmlFor="hub-search">Search packages</label>
         <input
           id="hub-search"
           name="q"
-          placeholder="pytest, workflow, ollama"
+          placeholder="Search packages (e.g. pytest, workflow, ollama)..."
           defaultValue={query}
         />
-        <button className="button primary" type="submit">
+        <button className="button dark" type="submit">
           Search Hub
         </button>
       </form>
@@ -53,8 +53,8 @@ export default async function HubPage({ searchParams }: HubPageProps) {
           </Link>
         </div>
       ) : null}
-      <div className="grid">
-        <div className="card">
+      <div className="grid compact">
+        <div className="card feature-card">
           <h2>Verified</h2>
           <p>
             Reviewed publisher, source, release integrity, manifest, and
@@ -64,7 +64,7 @@ export default async function HubPage({ searchParams }: HubPageProps) {
             View verified
           </Link>
         </div>
-        <div className="card">
+        <div className="card feature-card">
           <h2>Community</h2>
           <p>
             No community packages yet. SOVYN Hub is new, and submissions start
@@ -74,7 +74,7 @@ export default async function HubPage({ searchParams }: HubPageProps) {
             View community
           </Link>
         </div>
-        <div className="card">
+        <div className="card feature-card">
           <h2>Publish</h2>
           <p>
             Bring a public repository, license, manifest, and explicit
