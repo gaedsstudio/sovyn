@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sovyn-org",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-29",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "sovyn-org"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
