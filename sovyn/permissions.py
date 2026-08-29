@@ -26,6 +26,7 @@ class PermissionDecision(StrEnum):
 class PermissionRequest:
     action: ActionKind
     description: str
+    reason: str = "Requested by the current agent action."
     destructive: bool = False
 
 

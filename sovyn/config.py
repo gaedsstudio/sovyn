@@ -19,6 +19,7 @@ class ModelSettings:
     model: str
     primary: str = ""
     fallback: str = ""
+    thinking: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +55,7 @@ class SovynConfig:
 
 
 DEFAULT_CONFIG = SovynConfig(
-    model=ModelSettings(provider="mock", model="mock-local", primary="", fallback=""),
+    model=ModelSettings(provider="mock", model="mock-local", primary="", fallback="", thinking=False),
     agent=AgentSettings(max_steps=30, context_budget=12000, tool_output_budget=4000, file_content_budget=8000),
     permissions=PermissionSettings(
         read_files=PermissionPolicy.ALLOW,
@@ -78,6 +79,7 @@ def load_config(paths: SovynPaths) -> SovynConfig:
             model=str(raw.get("model", {}).get("model", DEFAULT_CONFIG.model.model)),
             primary=str(raw.get("model", {}).get("primary", DEFAULT_CONFIG.model.primary)),
             fallback=str(raw.get("model", {}).get("fallback", DEFAULT_CONFIG.model.fallback)),
+            thinking=bool(raw.get("model", {}).get("thinking", DEFAULT_CONFIG.model.thinking)),
         ),
         agent=AgentSettings(
             max_steps=int(raw.get("agent", {}).get("max_steps", DEFAULT_CONFIG.agent.max_steps)),
@@ -110,6 +112,7 @@ def write_default_config(path: Path) -> None:
                 'model = "mock-local"',
                 'primary = ""',
                 'fallback = ""',
+                "thinking = false",
                 "",
                 "[agent]",
                 "max_steps = 30",
@@ -145,6 +148,7 @@ def write_config(path: Path, config: SovynConfig) -> None:
                 f'model = "{config.model.model}"',
                 f'primary = "{config.model.primary}"',
                 f'fallback = "{config.model.fallback}"',
+                f"thinking = {str(config.model.thinking).lower()}",
                 "",
                 "[agent]",
                 f"max_steps = {config.agent.max_steps}",

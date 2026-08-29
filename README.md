@@ -22,7 +22,7 @@ SOVYN runs in your terminal, uses local or bring-your-own-key language models, e
 $ sovyn
 
 SOVYN 0.1
-model      mock/demo
+model      ollama/qwen3:8b
 workspace  ~/project
 
 > create hello.txt containing Hello from SOVYN
@@ -38,7 +38,7 @@ Create or modify hello.txt
 Done. Mock provider wrote the requested file.
 
 This task can be reused.
-Save as workflow? [Y/n] y
+Create workflow? [y/N] y
 Workflow name: hello-file
 
 ◆ Workflow saved
@@ -127,16 +127,24 @@ py -m site --user-base
 
 The executable is usually under that directory's `Scripts` folder. SOVYN does not modify `PATH` automatically. Prefer `pipx` for end-user CLI installation once the package is available.
 
+If `sovyn` is not recognized, you can also run SOVYN through Python:
+
+```powershell
+py -m sovyn
+py -m sovyn version
+py -m sovyn config select
+```
+
 ## Provider Support
 
 | Provider          | Status                           |   Local |    Tool calling |
 | ----------------- | -------------------------------- | ------: | --------------: |
 | Mock              | Tested                           |       ✓ |               ✓ |
-| Ollama            | Supported / real-host unverified |       ✓ | model-dependent |
+| Ollama            | Verified on Windows with qwen3:8b |       ✓ | model-dependent |
 | OpenAI-compatible | Supported                        | depends |       supported |
 | Anthropic         | Supported                        |       ✗ |       supported |
 
-Real Ollama tool-calling was not manually verified on the release machine because Ollama was not installed. Ollama behavior depends on the model's native tool support.
+Windows + Python 3.14 + Ollama + `qwen3:8b` has been verified with `sovyn provider test` and a real filesystem read/write task. Linux and macOS real-provider E2E coverage still needs separate validation. Ollama behavior depends on the model's native tool support.
 
 ## Commands
 
@@ -148,6 +156,8 @@ sovyn workflows
 sovyn sessions
 sovyn memory
 sovyn config
+sovyn config show
+sovyn config select
 sovyn doctor
 sovyn doctor --providers
 sovyn provider test
@@ -192,6 +202,17 @@ You can run with local Ollama models or bring your own provider keys. Cloud mode
 * Workflows currently support a deliberately small schema.
 * Undo is best-effort.
 * SOVYN is not a sandbox for arbitrary shell execution.
+
+## Debug Timing
+
+Use `--debug` when you need per-turn latency details:
+
+```bash
+sovyn --debug "read README.md and summarize it"
+py -m sovyn --debug
+```
+
+Debug mode reports model-turn timing, tool execution timing, and total task time. Normal mode keeps those details hidden.
 
 ## Roadmap
 

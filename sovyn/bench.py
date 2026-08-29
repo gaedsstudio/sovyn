@@ -14,13 +14,21 @@ from sovyn.tool_registry import ToolValidationError, execute_validated_tool, val
 from sovyn.trust import WorkspaceTrust
 from sovyn.ui import DiamondState, Renderer
 from sovyn.workflow_runner import run_workflow
-from sovyn.workflows import save_workflow
+from sovyn.workflows import StepKind, Workflow, WorkflowStep, save_workflow, workflow_path
 
 
 @dataclass(frozen=True, slots=True)
 class BenchCase:
     name: str
     passed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CompetitiveBenchResult:
+    run1_model_calls: int
+    run2_model_calls: int
+    run3_model_calls: int
+    run4_model_calls: int
 
 
 def run_bench(renderer: Renderer) -> tuple[BenchCase, ...]:
@@ -70,7 +78,49 @@ def run_bench(renderer: Renderer) -> tuple[BenchCase, ...]:
     for case in cases:
         renderer.line(DiamondState.COMPLETED if case.passed else DiamondState.FAILED, f"{case.name:<18} {'PASS' if case.passed else 'FAIL'}")
     renderer.line(DiamondState.COMPLETED, f"{sum(1 for case in cases if case.passed)} / {len(cases)}")
+    if replay is not None:
+        renderer.line(DiamondState.WAITING, f"First run model calls   {result.model_calls}")
+        renderer.line(DiamondState.WAITING, f"Reused run model calls  {replay.model_calls}")
+        renderer.line(DiamondState.WAITING, f"First run tool calls    {len(result.tools)}")
+        renderer.line(DiamondState.WAITING, f"Reused run tool calls   {replay.tool_calls}")
     return cases
+
+
+def run_workflow_intelligence_bench(renderer: Renderer) -> CompetitiveBenchResult:
+    with TemporaryDirectory(prefix="sovyn-workflow-bench-", ignore_cleanup_errors=True) as raw:
+        workspace = Path(raw)
+        (workspace / "pyproject.toml").write_text("[project]\nname='bench'\n", encoding="utf-8")
+        store = Store(workspace / ".sovyn" / "sovyn.db")
+        trust = WorkspaceTrust(store)
+        trust.trust(workspace)
+        interaction = Interaction(DEFAULT_CONFIG, renderer, _AllowPrompter(), trust, True)
+        workflow = Workflow(
+            name="python-test-repair",
+            description="run tests and fix failures",
+            steps=(WorkflowStep("shell.run", StepKind.DETERMINISTIC, "Run tests", "pytest-missing-runner"),),
+            project_types=("python",),
+        )
+        workflows_dir = workspace / ".sovyn" / "workflows"
+        save_workflow(workflow_path(workflows_dir, workflow.name), workflow)
+        run1 = run_agent("run tests and fix the failure", AgentRuntime(MockProvider(), store, renderer, workspace, interaction))
+        run2 = run_workflow(workflow_path(workflows_dir, workflow.name), workspace, store, renderer, interaction)
+        (workspace / "uv.lock").write_text("", encoding="utf-8")
+        run3 = run_workflow(
+            workflow_path(workflows_dir, workflow.name),
+            workspace,
+            store,
+            renderer,
+            interaction,
+            allow_repair=True,
+        )
+        run4 = run_workflow(workflow_path(workflows_dir, "python-test-repair-v2"), workspace, store, renderer, interaction)
+    result = CompetitiveBenchResult(run1.model_calls, run2.model_calls, run3.model_calls, run4.model_calls)
+    renderer.line(DiamondState.COMPLETED, "SOVYN Workflow Intelligence Bench")
+    renderer.line(DiamondState.WAITING, f"Run 1 model calls  {result.run1_model_calls}")
+    renderer.line(DiamondState.WAITING, f"Run 2 model calls  {result.run2_model_calls}")
+    renderer.line(DiamondState.WAITING, f"Run 3 model calls  {result.run3_model_calls}")
+    renderer.line(DiamondState.WAITING, f"Run 4 model calls  {result.run4_model_calls}")
+    return result
 
 
 @dataclass(frozen=True, slots=True)

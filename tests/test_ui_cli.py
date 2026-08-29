@@ -1,9 +1,11 @@
+import subprocess
+import sys
 from io import StringIO
 from pathlib import Path
 
 from typer.testing import CliRunner
 
-from sovyn.cli import app
+from sovyn.cli import app, entrypoint
 from sovyn.cli import _show_provider_unavailable
 from sovyn.provider_init import ProviderStatus, resolve_provider
 from sovyn.config import ModelSettings
@@ -29,7 +31,49 @@ def test_cli_version_command() -> None:
     result = CliRunner().invoke(app, ["version"])
 
     assert result.exit_code == 0
-    assert "0.1.0" in result.stdout
+    assert "0.1.0a2" in result.stdout
+
+
+def test_cli_config_show_commands_use_subcommands(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    default_result = CliRunner().invoke(app, ["config"])
+    show_result = CliRunner().invoke(app, ["config", "show"])
+
+    assert default_result.exit_code == 0
+    assert show_result.exit_code == 0
+    assert 'thinking = false' in default_result.stdout
+    assert default_result.stdout == show_result.stdout
+
+
+def test_cli_config_select_subcommand_and_legacy_action_reach_selection(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("shutil.which", lambda command: "ollama")
+
+    class TagsResponse:
+        def json(self) -> dict[str, tuple[dict[str, str], ...]]:
+            return {"models": ({"name": "qwen3:8b"},)}
+
+    monkeypatch.setattr("httpx.get", lambda url: TagsResponse())
+
+    select_result = CliRunner().invoke(app, ["config", "select"], input="1\n")
+    legacy_result = CliRunner().invoke(app, ["config", "--action", "select"], input="1\n")
+
+    assert select_result.exit_code == 0
+    assert legacy_result.exit_code == 0
+    assert "Selected ollama/qwen3:8b" in select_result.stdout
+    assert "Selected ollama/qwen3:8b" in legacy_result.stdout
+
+
+def test_python_module_entrypoint_prints_version() -> None:
+    result = subprocess.run([sys.executable, "-m", "sovyn", "version"], capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0
+    assert "0.1.0a2" in result.stdout
 
 
 def test_cli_demo_does_not_require_provider(tmp_path: Path, monkeypatch) -> None:

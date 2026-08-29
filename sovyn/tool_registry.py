@@ -22,6 +22,7 @@ from sovyn.tools import (
     shell_run,
     write_file,
 )
+from sovyn.undo import record_file_snapshot
 
 
 @unique
@@ -129,9 +130,15 @@ def _execute_validated_tool(call: ValidatedToolCall, workspace: Path, interactio
         case "filesystem.write":
             path = resolve_workspace_path(workspace, call.arguments["path"])
             preview = preview_write(path, call.arguments["content"])
-            request = PermissionRequest(ActionKind.WRITE_FILES, f"Create or modify {path.name}")
+            request = PermissionRequest(
+                ActionKind.WRITE_FILES,
+                f"Create or modify {path.name}",
+                reason=f"Update {path.name} for the current task.",
+            )
             if interaction is not None and interaction.approve(request, preview) is Approval.DENY:
                 return ToolResult(call.name, "write denied", tool_call_id=call.id, success=False, error="Write denied")
+            if interaction is not None:
+                record_file_snapshot(interaction.trust.store, workspace, path, request.description)
             return write_file(path, call.arguments["content"]).with_call(call.id)
         case "workspace.search":
             return search_workspace(workspace, call.arguments["term"]).with_call(call.id)

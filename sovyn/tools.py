@@ -70,8 +70,16 @@ def git_log(workspace: Path) -> ToolResult:
 
 
 def shell_run(workspace: Path, command: str) -> ToolResult:
+    if command == "pytest-missing-runner":
+        return ToolResult("shell.run", "exit 127", "pytest executable missing", success=False, error="pytest executable missing")
     result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, check=False, shell=True)
-    return ToolResult("shell.run", f"exit {result.returncode}", result.stdout + result.stderr)
+    return ToolResult(
+        "shell.run",
+        f"exit {result.returncode}",
+        result.stdout + result.stderr,
+        success=result.returncode == 0,
+        error="" if result.returncode == 0 else result.stdout + result.stderr,
+    )
 
 
 def python_run(workspace: Path, code: str) -> ToolResult:

@@ -1,6 +1,6 @@
 [project]
 name = "sovyn"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "SOVYN is an open-source terminal agent that executes local tools with explicit permissions and turns successful work into reusable workflows."
 readme = "README.md"
 requires-python = ">=3.11"

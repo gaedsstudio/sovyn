@@ -5,15 +5,16 @@ from pathlib import Path
 import pytest
 
 from sovyn.agent import AgentRuntime, run_agent
-from sovyn.config import DEFAULT_CONFIG
+from sovyn.config import DEFAULT_CONFIG, ModelSettings
 from sovyn.fallback import cloud_context_summary, confirm_fallback
 from sovyn.interaction import Approval, Interaction, Prompter
 from sovyn.loop_guard import LoopGuard
 from sovyn.path_safety import PathSafetyError, resolve_workspace_path
-from sovyn.providers import MockProvider, ProviderError, ProviderErrorKind, normalize_provider_error
+from sovyn.provider_init import resolve_provider
+from sovyn.providers import AnthropicProvider, MockProvider, OpenAICompatibleProvider, OllamaProvider, ProviderError, ProviderErrorKind, normalize_provider_error
 from sovyn.shell_safety import assess_shell_command
 from sovyn.storage import Store
-from sovyn.tool_protocol import CompatibilityParseError, parse_compatibility_tool_calls
+from sovyn.tool_protocol import CompatibilityParseError, ToolCall, parse_compatibility_tool_calls
 from sovyn.tool_registry import ToolValidationError, execute_validated_tool, validate_tool_call
 from sovyn.trust import WorkspaceTrust
 from sovyn.ui import Renderer
@@ -25,6 +26,30 @@ class ScriptedPrompter:
 
     def ask(self, prompt: str) -> str:
         return self.answers[0]
+
+
+@dataclass(frozen=True, slots=True)
+class GenerateResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, str]:
+        return {"response": "done"}
+
+
+@dataclass(slots=True)  # noqa: MUTABLE_OK
+class GenerateClient:
+    payloads: list[dict]
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url, json):
+        self.payloads.append(json)
+        return GenerateResponse()
 
 
 def test_provider_tool_call_normalizes_compatibility_protocol() -> None:
@@ -134,3 +159,92 @@ def test_cloud_context_summary_excludes_secret_files(tmp_path: Path) -> None:
 
     assert summary.file_count == 1
     assert ".env" in summary.sensitive_files
+
+
+def test_debug_mode_reports_model_tool_and_total_timing(tmp_path: Path) -> None:
+    store = Store(tmp_path / "sovyn.db")
+    trust = WorkspaceTrust(store)
+    trust.trust(tmp_path)
+    stream = StringIO()
+    interaction = Interaction(DEFAULT_CONFIG, Renderer(stream, interactive=False), ScriptedPrompter(("y",)), trust, True)
+
+    run_agent(
+        "create a file called hello.txt containing hello",
+        AgentRuntime(MockProvider(), store, interaction.renderer, tmp_path, interaction, debug=True),
+    )
+
+    output = stream.getvalue()
+    assert "model turn 1" in output
+    assert "filesystem.write" in output
+    assert "total" in output
+
+
+async def _capturing_post_json(url, payload, provider, headers=None):
+    _capturing_post_json.payloads.append(payload)
+    if url.endswith("/api/chat"):
+        return {"message": {"content": "done"}}
+    return {"choices": [{"message": {"content": "done"}}], "usage": {}}
+
+
+_capturing_post_json.payloads = []
+
+
+def test_ollama_chat_turn_sends_think_false_by_default(monkeypatch) -> None:
+    _capturing_post_json.payloads.clear()
+    monkeypatch.setattr("sovyn.providers.post_json", _capturing_post_json)
+
+    import anyio
+
+    anyio.run(OllamaProvider("qwen3:8b").turn, "hello", ())
+
+    assert _capturing_post_json.payloads[0]["think"] is False
+
+
+def test_ollama_chat_turn_sends_think_true_when_enabled(monkeypatch) -> None:
+    _capturing_post_json.payloads.clear()
+    monkeypatch.setattr("sovyn.providers.post_json", _capturing_post_json)
+
+    import anyio
+
+    anyio.run(OllamaProvider("qwen3:8b", thinking=True).turn, "hello", ())
+
+    assert _capturing_post_json.payloads[0]["think"] is True
+
+
+def test_ollama_generate_sends_think_setting(monkeypatch) -> None:
+    payloads: list[dict] = []
+    monkeypatch.setattr("httpx.AsyncClient", lambda timeout: GenerateClient(payloads))
+
+    import anyio
+
+    assert anyio.run(OllamaProvider("qwen3:8b").generate, "hello") == "done"
+    assert anyio.run(OllamaProvider("qwen3:8b", thinking=True).generate, "hello") == "done"
+
+    assert payloads[0]["think"] is False
+    assert payloads[1]["think"] is True
+
+
+def test_openai_and_anthropic_payloads_do_not_send_ollama_think(monkeypatch) -> None:
+    _capturing_post_json.payloads.clear()
+    monkeypatch.setattr("sovyn.providers.post_json", _capturing_post_json)
+
+    import anyio
+
+    anyio.run(OpenAICompatibleProvider("test", "key", "https://example.test/v1").turn, "hello", ())
+    anyio.run(AnthropicProvider("test", "key").turn, "hello", ())
+
+    assert "think" not in _capturing_post_json.payloads[0]
+    assert "think" not in _capturing_post_json.payloads[1]
+
+
+def test_resolve_provider_preserves_ollama_thinking(monkeypatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda command: "ollama")
+
+    class TagsResponse:
+        def json(self) -> dict[str, tuple[dict[str, str], ...]]:
+            return {"models": ({"name": "qwen3:8b"},)}
+
+    resolution = resolve_provider(ModelSettings("ollama", "qwen3:8b", thinking=True), lambda url: TagsResponse())
+
+    assert isinstance(resolution.provider, OllamaProvider)
+    assert resolution.provider.thinking is True

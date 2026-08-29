@@ -6,7 +6,9 @@ from sovyn.diffing import preview_write
 from sovyn.permissions import ActionKind, PermissionDecision, PermissionRequest, decide_permission
 from sovyn.security import has_sensitive_content, redact_secrets
 from sovyn.tools import list_files
-from sovyn.workflows import StepKind, Workflow, WorkflowStep, load_workflow, save_workflow, workflow_from_success
+import pytest
+
+from sovyn.workflows import StepKind, Workflow, WorkflowNameError, WorkflowStep, load_workflow, save_workflow, workflow_from_success, workflow_path
 from sovyn.workflow_runner import _resolve_vars
 
 
@@ -88,3 +90,15 @@ def test_workflow_variables_resolve_workspace_and_date(tmp_path: Path) -> None:
 
     assert str(tmp_path) in resolved
     assert "${date}" not in resolved
+
+
+@pytest.mark.parametrize("name", ("", ".", "..", "../escape", "nested/name", "nested\\name", "bad:name", "bad*name", "bad?name"))
+def test_workflow_path_rejects_unsafe_names(tmp_path: Path, name: str) -> None:
+    with pytest.raises(WorkflowNameError):
+        workflow_path(tmp_path, name)
+
+
+def test_workflow_path_keeps_unicode_name_inside_workflows_dir(tmp_path: Path) -> None:
+    path = workflow_path(tmp_path, "요약 workflow")
+
+    assert path == tmp_path / "요약 workflow.yaml"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0a2
+
+- Added Ollama `think` control with `thinking = false` as the default model setting.
+- Added debug-only model/tool/total latency timing.
+- Added read-only tool-call deduplication with cache invalidation after workspace mutation.
+- Changed workflow creation to explicit opt-in and added workflow filename safety validation.
+- Added `sovyn config show`, `sovyn config select`, and `python -m sovyn` entrypoints.
+- Updated docs to reflect verified Windows + Python 3.14 + Ollama + qwen3:8b E2E coverage.
+
 ## 0.1.0a1
 
 - Added canonical provider tool-call and tool-result protocol.

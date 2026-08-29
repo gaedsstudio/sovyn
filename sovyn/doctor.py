@@ -36,10 +36,8 @@ def run_doctor(paths: SovynPaths, config: SovynConfig, provider: ProviderResolut
 
 
 def _credential_detail(config: SovynConfig) -> str:
-    match config.model.provider:
-        case "openai" | "openai-compatible":
-            return "configured" if "OPENAI_API_KEY" in os.environ else "not configured"
-        case "anthropic":
-            return "configured" if "ANTHROPIC_API_KEY" in os.environ else "not configured"
-        case _:
-            return "not required"
+    if config.model.provider in {"openai", "openai-compatible"}:
+        return "configured" if "OPENAI_API_KEY" in os.environ else "not configured"
+    if config.model.provider == "anthropic":
+        return "configured" if "ANTHROPIC_API_KEY" in os.environ else "not configured"
+    return "not required"

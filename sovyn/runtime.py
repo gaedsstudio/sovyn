@@ -19,6 +19,7 @@ class AppRuntime:
     renderer: Renderer
     interaction: Interaction
     store: Store
+    debug: bool = False
 
 
 def boot(
@@ -26,6 +27,7 @@ def boot(
     output_stream: TextIO,
     interactive: bool,
     workspace: Path | None = None,
+    debug: bool = False,
 ) -> AppRuntime:
     paths = default_paths(workspace=workspace)
     paths.ensure()
@@ -35,17 +37,19 @@ def boot(
     renderer = Renderer(output_stream, interactive=interactive)
     provider = resolve_provider(config.model)
     if provider.status is ProviderStatus.UNAVAILABLE and config.model.provider == "ollama" and provider.models:
-        config = replace(config, model=ModelSettings(provider="ollama", model=provider.models[0]))
+        config = replace(config, model=ModelSettings(provider="ollama", model=provider.models[0], thinking=config.model.thinking))
         write_config(paths.config, config)
         provider = resolve_provider(config.model)
     store = Store(paths.database)
     interaction = Interaction(config, renderer, ConsolePrompter(input_stream, output_stream), WorkspaceTrust(store), interactive)
-    return AppRuntime(paths, config, provider, renderer, interaction, store)
+    return AppRuntime(paths, config, provider, renderer, interaction, store, debug)
 
 
 def show_provider_status(runtime: AppRuntime) -> None:
-    runtime.renderer.line(DiamondState.COMPLETED, f"SOVYN 0.1")
-    runtime.renderer.line(DiamondState.WAITING, f"model      {runtime.provider.provider.name}")
-    runtime.renderer.line(DiamondState.WAITING, f"workspace  {runtime.paths.workspace}")
+    runtime.renderer.stream_text("SOVYN")
+    runtime.renderer.stream_text("")
+    runtime.renderer.stream_text(str(runtime.paths.workspace))
+    runtime.renderer.stream_text(f"{runtime.provider.provider.name} · local")
+    runtime.renderer.stream_text("")
     if runtime.provider.status is ProviderStatus.UNAVAILABLE:
         runtime.renderer.line(DiamondState.ATTENTION, runtime.provider.detail)

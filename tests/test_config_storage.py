@@ -15,6 +15,7 @@ def test_config_loads_default_when_file_missing(tmp_path: Path) -> None:
     config = load_config(paths)
 
     assert config.model.provider == "mock"
+    assert config.model.thinking is False
     assert config.permissions.write_files is PermissionPolicy.ASK
 
 
@@ -25,6 +26,7 @@ def test_config_roundtrip_when_default_written(tmp_path: Path) -> None:
     config = load_config(paths)
 
     assert config.agent.max_steps == 30
+    assert config.model.thinking is False
     assert config.ui.animations is True
 
 

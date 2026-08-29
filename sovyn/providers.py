@@ -66,6 +66,7 @@ class MockProvider:
 class OllamaProvider:
     model: str
     base_url: str = "http://localhost:11434"
+    thinking: bool = False
 
     @property
     def name(self) -> str:
@@ -73,13 +74,20 @@ class OllamaProvider:
 
     async def generate(self, prompt: str) -> str:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(f"{self.base_url}/api/generate", json={"model": self.model, "prompt": prompt, "stream": False})
+            response = await client.post(
+                f"{self.base_url}/api/generate",
+                json={"model": self.model, "prompt": prompt, "stream": False, "think": self.thinking},
+            )
             response.raise_for_status()
             return str(response.json().get("response", ""))
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream("POST", f"{self.base_url}/api/generate", json={"model": self.model, "prompt": prompt, "stream": True}) as response:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/api/generate",
+                json={"model": self.model, "prompt": prompt, "stream": True, "think": self.thinking},
+            ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line:
@@ -94,6 +102,7 @@ class OllamaProvider:
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
+            "think": self.thinking,
             "tools": [ollama_tool(schema) for schema in tools],
         }
         data = await post_json(f"{self.base_url}/api/chat", payload, self.name)
