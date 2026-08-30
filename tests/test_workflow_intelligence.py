@@ -17,7 +17,7 @@ from sovyn.workflow_runner import run_workflow
 from sovyn.workflows import StepKind, Workflow, WorkflowStep, save_workflow, workflow_path
 
 
-@dataclass(slots=True)  # noqa: MUTABLE_OK
+@dataclass(slots=True)  # noqa
 class QueuePrompter:
     answers: list[str]
 
@@ -27,7 +27,7 @@ class QueuePrompter:
         return self.answers.pop(0)
 
 
-@dataclass(slots=True)  # noqa: MUTABLE_OK
+@dataclass(slots=True)  # noqa
 class FailingProvider:
     calls: int = 0
 
@@ -54,7 +54,13 @@ def _interaction(tmp_path: Path, answers: list[str] | None = None) -> tuple[Stor
     trust = WorkspaceTrust(store)
     trust.trust(tmp_path)
     stream = StringIO()
-    interaction = Interaction(DEFAULT_CONFIG, Renderer(stream, interactive=False), QueuePrompter(answers or ["y"]), trust, True)
+    interaction = Interaction(
+        DEFAULT_CONFIG,
+        Renderer(stream, interactive=False),
+        QueuePrompter(answers or ["y"]),
+        trust,
+        True,
+    )
     return store, interaction, stream
 
 
@@ -76,7 +82,11 @@ def _workflow(
 
 
 def test_exact_workflow_match_scores_high(tmp_path: Path) -> None:
-    workflow = _workflow("release-check", "run release checks", (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),))
+    workflow = _workflow(
+        "release-check",
+        "run release checks",
+        (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),),
+    )
     save_workflow(workflow_path(tmp_path, workflow.name), workflow)
 
     match = WorkflowMatcher(tmp_path).best_match("run release checks", tmp_path)
@@ -86,7 +96,11 @@ def test_exact_workflow_match_scores_high(tmp_path: Path) -> None:
 
 
 def test_paraphrased_workflow_match_runs_without_provider(tmp_path: Path) -> None:
-    workflow = _workflow("release-check", "run release checks", (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),))
+    workflow = _workflow(
+        "release-check",
+        "run release checks",
+        (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),),
+    )
     save_workflow(workflow_path(tmp_path, workflow.name), workflow)
     store, interaction, stream = _interaction(tmp_path)
     provider = FailingProvider()
@@ -102,7 +116,11 @@ def test_paraphrased_workflow_match_runs_without_provider(tmp_path: Path) -> Non
 
 
 def test_unrelated_request_does_not_match(tmp_path: Path) -> None:
-    workflow = _workflow("release-check", "run release checks", (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),))
+    workflow = _workflow(
+        "release-check",
+        "run release checks",
+        (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),),
+    )
     save_workflow(workflow_path(tmp_path, workflow.name), workflow)
 
     match = WorkflowMatcher(tmp_path).best_match("write a product announcement", tmp_path)
@@ -149,7 +167,11 @@ def test_at_file_input_binding_replays_runtime_target(tmp_path: Path) -> None:
 
 
 def test_medium_confidence_requires_confirmation(tmp_path: Path) -> None:
-    workflow = _workflow("release-check", "run release checks", (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),))
+    workflow = _workflow(
+        "release-check",
+        "run release checks",
+        (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),),
+    )
     save_workflow(workflow_path(tmp_path, workflow.name), workflow)
     match = WorkflowMatcher(tmp_path).best_match("check release", tmp_path)
 
@@ -237,7 +259,13 @@ def test_replay_enforces_permissions(tmp_path: Path) -> None:
     save_workflow(workflow_path(tmp_path, workflow.name), workflow)
     store, interaction, _ = _interaction(tmp_path, ["n"])
 
-    result = run_workflow(workflow_path(tmp_path, workflow.name), tmp_path, store, Renderer(StringIO(), False), interaction)
+    result = run_workflow(
+        workflow_path(tmp_path, workflow.name),
+        tmp_path,
+        store,
+        Renderer(StringIO(), False),
+        interaction,
+    )
 
     assert result.tool_calls == 1
     assert result.status == "failed"
@@ -245,7 +273,11 @@ def test_replay_enforces_permissions(tmp_path: Path) -> None:
 
 
 def test_stats_include_workflow_intelligence_counters(tmp_path: Path) -> None:
-    workflow = _workflow("release-check", "run release checks", (WorkflowStep("git.status", StepKind.DETERMINISTIC, ""),))
+    workflow = _workflow(
+        "list-files",
+        "list files",
+        (WorkflowStep("filesystem.list", StepKind.DETERMINISTIC, ""),),
+    )
     save_workflow(workflow_path(tmp_path, workflow.name), workflow)
     store, interaction, _ = _interaction(tmp_path)
 

@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 from sovyn.agent import AgentRuntime, run_agent
 from sovyn.commands import SlashCommand, parse_slash_command
 from sovyn.config import DEFAULT_CONFIG
-from sovyn.interaction import Approval, Interaction, Prompter
+from sovyn.interaction import Approval, Interaction
 from sovyn.permissions import ActionKind, PermissionRequest
 from sovyn.references import ReferenceKind, parse_references
 from sovyn.repl import render_help
@@ -24,7 +24,7 @@ from sovyn.workflow_runner import run_workflow
 from sovyn.workflows import StepKind, workflow_path
 
 
-@dataclass(slots=True)  # noqa: MUTABLE_OK
+@dataclass(slots=True)  # noqa
 class QueuePrompter:
     answers: list[str]
     prompts: list[str]
@@ -36,7 +36,7 @@ class QueuePrompter:
         return self.answers.pop(0)
 
 
-@dataclass(slots=True)  # noqa: MUTABLE_OK
+@dataclass(slots=True)  # noqa
 class ScriptedProvider:
     calls: tuple[ToolCall, ...]
     turn_count: int = 0
@@ -85,13 +85,21 @@ def test_at_references_parse_file_directory_and_git_diff(tmp_path: Path) -> None
 
     references = parse_references("@README.md @src @git:diff explain", tmp_path)
 
-    assert tuple(item.kind for item in references) == (ReferenceKind.FILE, ReferenceKind.DIRECTORY, ReferenceKind.GIT_DIFF)
+    assert tuple(item.kind for item in references) == (
+        ReferenceKind.FILE,
+        ReferenceKind.DIRECTORY,
+        ReferenceKind.GIT_DIFF,
+    )
     assert references[0].value == "README.md"
 
 
 def test_task_level_permission_grant_reuses_current_task_only(tmp_path: Path) -> None:
     _, interaction = _interaction(tmp_path, QueuePrompter(["a"], []))
-    request = PermissionRequest(ActionKind.WRITE_FILES, "Create or modify summary.txt", reason="Update requested output file")
+    request = PermissionRequest(
+        ActionKind.WRITE_FILES,
+        "Create or modify summary.txt",
+        reason="Update requested output file",
+    )
 
     first = interaction.approve(request)
     second = interaction.approve(request)
@@ -111,7 +119,9 @@ def test_permission_prompt_includes_reason(tmp_path: Path) -> None:
     prompter = QueuePrompter(["n"], [])
     interaction = Interaction(DEFAULT_CONFIG, Renderer(stream, interactive=False), prompter, trust, True)
 
-    interaction.approve(PermissionRequest(ActionKind.WRITE_FILES, "Create or modify summary.txt", reason="Save task result"))
+    interaction.approve(
+        PermissionRequest(ActionKind.WRITE_FILES, "Create or modify summary.txt", reason="Save task result")
+    )
 
     assert "Reason" in stream.getvalue()
     assert "Save task result" in stream.getvalue()
@@ -176,8 +186,8 @@ def test_trajectory_compiler_classifies_steps_and_generates_open_workflow(tmp_pa
 
 def test_zero_model_workflow_replay_records_stats(tmp_path: Path) -> None:
     store = Store(tmp_path / "sovyn.db")
-    workflow = compile_trajectory("check repo", (ToolCall("git-1", "git.status", {}),))
-    path = workflow_path(tmp_path, "check-repo")
+    workflow = compile_trajectory("list files", (ToolCall("list-1", "filesystem.list", {}),))
+    path = workflow_path(tmp_path, "list-files")
     from sovyn.workflows import save_workflow
 
     save_workflow(path, workflow)

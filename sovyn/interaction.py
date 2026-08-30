@@ -107,15 +107,15 @@ class Interaction:
     def offer_workflow(self, workflow: Workflow, workflows_dir: Path) -> bool:
         if not self.interactive:
             return False
-        self.renderer.line(DiamondState.ATTENTION, "This task can be reused.")
+        self.renderer.line(DiamondState.ATTENTION, "Reusable workflow available.")
         try:
-            answer = self.prompter.ask("Create workflow? [y/N] ").lower()
+            answer = self.prompter.ask("Learn this task? [y/N] ").lower()
         except (EOFError, KeyboardInterrupt):
             return False
         if answer not in {"y", "yes"}:
             return False
         try:
-            name = self.prompter.ask("Workflow name: ").strip()
+            name = self.prompter.ask(f"Workflow name [{workflow.name}]: ").strip() or workflow.name
         except (EOFError, KeyboardInterrupt):
             return False
         try:

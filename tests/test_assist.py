@@ -183,6 +183,7 @@ def test_exact_write_with_modifier_is_verified_success_after_repeat(tmp_path: Pa
     assert len(writes) == 2
     assert tuple(tool.no_change for tool in writes) == (False, True)
     assert result.workflow is not None
+    assert len(result.workflow.steps) == 1
 
 
 def test_korean_exact_write_can_be_verified_after_repeat(tmp_path: Path) -> None:

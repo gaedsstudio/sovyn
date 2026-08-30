@@ -4,11 +4,11 @@ from pathlib import Path
 from time import perf_counter
 from typing import Literal, assert_never
 
+from sovyn.interaction import Interaction
 from sovyn.sessions import create_session
 from sovyn.stats import RunMetric, record_metric, record_workflow_event
 from sovyn.storage import Store, record_trajectory
 from sovyn.tool_protocol import ToolCall
-from sovyn.interaction import Interaction
 from sovyn.tool_registry import ToolValidationError, execute_validated_tool, validate_tool_call
 from sovyn.tools import ToolResult
 from sovyn.ui import DiamondState, Renderer
@@ -46,6 +46,7 @@ def run_workflow(
     repaired = False
     repaired_steps: list[WorkflowStep] = []
     runtime_inputs = inputs or {}
+    blocked = False
     for step in workflow.steps:
         active_step = _bind_step(step, runtime_inputs)
         match active_step.kind:
@@ -65,15 +66,18 @@ def run_workflow(
                 if result is not None and not result.success:
                     break
             case StepKind.AGENT_REQUIRED | StepKind.MODEL_REQUIRED:
-                model_calls += 1
-                renderer.line(DiamondState.WAITING, active_step.summary)
+                blocked = True
+                renderer.line(DiamondState.FAILED, "Workflow requires agent/model work")
+                break
             case StepKind.USER_REQUIRED:
+                blocked = True
                 renderer.line(DiamondState.ATTENTION, active_step.summary)
+                break
             case unreachable:
                 assert_never(unreachable)
         repaired_steps.append(active_step)
     duration = perf_counter() - started
-    success = all(result.success for result in results)
+    success = not blocked and len(results) == len(repaired_steps) and all(result.success for result in results)
     status: WorkflowStatus = "success" if success else "failed"
     session_id = create_session(store, f"workflow:{workflow.name}", status, len(results), duration)
     record_trajectory(store, session_id, tuple(results))
@@ -85,14 +89,15 @@ def run_workflow(
             model_calls=model_calls,
             tool_calls=len(results),
             workflow_reuse=True,
-            zero_model=model_calls == 0,
+            zero_model=success and model_calls == 0,
             duration_seconds=duration,
         ),
     )
     evolved = success and repaired and _save_evolved_workflow(path.parent, workflow, tuple(repaired_steps))
     if evolved:
         record_workflow_event(store, "evolution", workflow.name)
-    renderer.line(DiamondState.COMPLETED if success else DiamondState.FAILED, "Workflow completed" if success else "Workflow failed")
+    completion = "Workflow completed" if success else "Workflow failed"
+    renderer.line(DiamondState.COMPLETED if success else DiamondState.FAILED, completion)
     renderer.line(DiamondState.WAITING, f"Duration       {duration:.1f}s")
     renderer.line(DiamondState.WAITING, f"Tool calls     {len(results)}")
     renderer.line(DiamondState.WAITING, f"Model calls    {model_calls}")

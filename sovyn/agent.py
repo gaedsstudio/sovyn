@@ -22,9 +22,9 @@ from sovyn.storage import Store, record_trajectory
 from sovyn.tool_protocol import ProviderTurn, ToolCall
 from sovyn.tool_registry import ToolValidationError, execute_validated_tool, tool_schemas, validate_tool_call
 from sovyn.tools import ToolResult, list_files
-from sovyn.trajectory import compile_trajectory
 from sovyn.ui import DiamondState, Renderer
 from sovyn.undo import latest_undo_id, rename_undo_batches_after
+from sovyn.work_compiler import SuccessfulRun, compile_successful_run
 from sovyn.workflow_runner import run_workflow
 from sovyn.workflows import Workflow
 
@@ -127,9 +127,16 @@ def run_agent(request: str, runtime: AgentRuntime) -> AgentResult:
         ),
     )
     _render_completion(runtime.renderer, status, tools, duration)
-    workflow = compile_trajectory(request, calls) if _workflow_allowed(status, tools) else None
+    compile_result = (
+        compile_successful_run(SuccessfulRun(request, calls, tools, runtime.workspace))
+        if _workflow_allowed(status, tools)
+        else None
+    )
+    workflow = compile_result.workflow if compile_result is not None else None
     if workflow is not None and workflow.steps:
         runtime.renderer.line(DiamondState.COMPLETED, f"Reusable pattern detected · {workflow.name}")
+        if _should_offer_workflow(runtime, workflow):
+            runtime.interaction.offer_workflow(workflow, runtime.workflows_dir)
     return AgentResult(
         session_id=session_id,
         response=response,
@@ -471,6 +478,16 @@ def _workflow_allowed(status: RunStatus, tools: tuple[ToolResult, ...]) -> bool:
     if status is not RunStatus.SUCCESS:
         return False
     return all(tool.success for tool in tools)
+
+
+def _should_offer_workflow(runtime: AgentRuntime, workflow: Workflow) -> bool:
+    return (
+        not workflow.model_required
+        and runtime.interaction is not None
+        and runtime.workflows_dir is not None
+        and runtime.interaction.interactive
+        and runtime.renderer.capabilities.interactive
+    )
 
 
 def _render_completion(renderer: Renderer, status: RunStatus, tools: tuple[ToolResult, ...], duration: float) -> None:

@@ -1,12 +1,11 @@
+import re
 from dataclasses import dataclass
 from enum import StrEnum, unique
 from pathlib import Path
-import re
 from time import perf_counter
 
 from sovyn.references import ReferenceKind, parse_references
 from sovyn.workflows import Workflow, WorkflowStep, list_workflows
-
 
 RUN_THRESHOLD = 0.72
 ASK_THRESHOLD = 0.45
@@ -45,16 +44,23 @@ class MatcherBenchResult:
     duration_seconds: float
 
 
+@dataclass(frozen=True, slots=True)
+class ScoreContext:
+    workspace: Path
+    project_types: set[str]
+
+
 class WorkflowMatcher:
     def __init__(self, workflows_dir: Path) -> None:
         self.workflows_dir = workflows_dir
 
     def best_match(self, request: str, workspace: Path) -> WorkflowMatch:
         workflows = list_workflows(self.workflows_dir)
+        context = ScoreContext(workspace, _project_context(workspace))
         candidates = tuple(
             match
             for workflow in workflows
-            if (match := _score_workflow(workflow, request, workspace)).decision is not MatchDecision.SKIP
+            if (match := _score_workflow(workflow, request, context)).decision is not MatchDecision.SKIP
         )
         if not candidates:
             return _empty_match()
@@ -62,23 +68,24 @@ class WorkflowMatcher:
 
     def benchmark(self, request: str, workspace: Path, sizes: tuple[int, ...]) -> tuple[MatcherBenchResult, ...]:
         workflows = list_workflows(self.workflows_dir)
+        context = ScoreContext(workspace, _project_context(workspace))
         results: list[MatcherBenchResult] = []
         for size in sizes:
             started = perf_counter()
             for workflow in workflows[:size]:
-                _score_workflow(workflow, request, workspace)
+                _score_workflow(workflow, request, context)
             results.append(MatcherBenchResult(size, perf_counter() - started))
         return tuple(results)
 
 
-def _score_workflow(workflow: Workflow, request: str, workspace: Path) -> WorkflowMatch:
-    if not _project_compatible(workflow, workspace):
+def _score_workflow(workflow: Workflow, request: str, context: ScoreContext) -> WorkflowMatch:
+    if not _project_compatible(workflow, context):
         return _empty_match(workflow, "project context incompatible")
-    inputs = _bind_inputs(workflow.steps, request, workspace)
+    inputs = _bind_inputs(workflow.steps, request, context.workspace)
     if _needs_input(workflow.steps) and not inputs:
         return _empty_match(workflow, "required input unresolved")
     score = _text_score(request, workflow)
-    score += _context_bonus(workflow, workspace)
+    score += _context_bonus(workflow, context)
     score = min(score, 1.0)
     if _contains_destructive_step(workflow.steps) and score >= ASK_THRESHOLD:
         return WorkflowMatch(MatchDecision.ASK, score, workflow, inputs, "destructive workflow requires confirmation")
@@ -100,24 +107,23 @@ def _text_score(request: str, workflow: Workflow) -> float:
     return overlap + contains
 
 
-def _context_bonus(workflow: Workflow, workspace: Path) -> float:
-    context = _project_context(workspace)
+def _context_bonus(workflow: Workflow, context: ScoreContext) -> float:
     if not workflow.project_types:
         return 0.0
-    overlap = set(workflow.project_types) & context
+    overlap = set(workflow.project_types) & context.project_types
     if not overlap:
         return 0.0
     bonus = 0.2 * (len(overlap) / len(workflow.project_types))
-    if "uv" in workflow.project_types and "uv" in context:
+    if "uv" in workflow.project_types and "uv" in context.project_types:
         bonus += 0.12
     return bonus
 
 
-def _project_compatible(workflow: Workflow, workspace: Path) -> bool:
+def _project_compatible(workflow: Workflow, context: ScoreContext) -> bool:
     required = set(workflow.project_types)
     if not required:
         return True
-    return bool(required & _project_context(workspace))
+    return bool(required & context.project_types)
 
 
 def _project_context(workspace: Path) -> set[str]:

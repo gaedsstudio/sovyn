@@ -183,9 +183,18 @@ app.add_typer(workflow_app, name="workflow")
 def workflow_show(name: str) -> None:
     paths = default_paths()
     loaded = load_workflow(paths.workflows / f"{name}.yaml")
+    permissions = ", ".join(loaded.permissions) or "none"
+    validation = ", ".join(loaded.validation) or "none"
     typer.echo(f"WORKFLOW\n\n{loaded.name}")
+    typer.echo(f"description: {loaded.description}")
+    typer.echo(f"model_required: {str(loaded.model_required).lower()}")
+    typer.echo(f"permissions: {permissions}")
+    typer.echo(f"network: {str(loaded.network).lower()}")
+    typer.echo(f"validation: {validation}")
+    typer.echo("\nSTEPS")
     for index, step in enumerate(loaded.steps, start=1):
-        typer.echo(f"{index}  {step.tool}  {step.kind.value}")
+        target = step.argument or step.content
+        typer.echo(f"{index:02d} {step.tool} {step.kind.value} {target}".rstrip())
 
 
 @workflow_app.command("edit")
