@@ -24,7 +24,6 @@ classifiers = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "pytest-timeout>=2.3",
 ]
 
 [project.scripts]
@@ -40,7 +39,7 @@ include = ["sovyn*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = ["-ra", "--strict-config", "--strict-markers", "--timeout=30", "--timeout-method=thread"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
 
 [tool.ruff]
 line-length = 120

@@ -4,10 +4,11 @@ from pathlib import Path
 from typing import assert_never
 from urllib.parse import urlparse
 
+from sovyn.config import DEFAULT_CONFIG
 from sovyn.diffing import preview_write
 from sovyn.interaction import Approval, Interaction
 from sovyn.path_safety import PathSafetyError, resolve_workspace_path
-from sovyn.permissions import ActionKind, PermissionRequest
+from sovyn.permissions import ActionKind, PermissionDecision, PermissionRequest, decide_permission
 from sovyn.shell_safety import assess_shell_command
 from sovyn.tool_protocol import JsonValue, ToolCall
 from sovyn.tools import (
@@ -65,6 +66,12 @@ class ValidatedToolCall:
     arguments: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class ToolExecutionContext:
+    workspace: Path
+    interaction: Interaction | None = None
+
+
 class ToolValidationError(RuntimeError):
     pass
 
@@ -114,54 +121,62 @@ def validate_tool_call(call: ToolCall) -> ValidatedToolCall:
     return ValidatedToolCall(call.id, call.name, values)
 
 
-def execute_validated_tool(call: ValidatedToolCall, workspace: Path, interaction: Interaction | None) -> ToolResult:
+def execute_tool(call: ValidatedToolCall, context: ToolExecutionContext) -> ToolResult:
     try:
-        return _execute_validated_tool(call, workspace, interaction)
+        return _execute_validated_tool(call, context)
     except (PathSafetyError, ToolValidationError) as exc:
         return ToolResult(call.name, "tool rejected", tool_call_id=call.id, success=False, error=str(exc))
 
 
-def _execute_validated_tool(call: ValidatedToolCall, workspace: Path, interaction: Interaction | None) -> ToolResult:
+def execute_validated_tool(call: ValidatedToolCall, workspace: Path, interaction: Interaction | None) -> ToolResult:
+    return execute_tool(call, ToolExecutionContext(workspace, interaction))
+
+
+def _execute_validated_tool(call: ValidatedToolCall, context: ToolExecutionContext) -> ToolResult:
     match call.name:
         case "filesystem.list":
-            return list_files(workspace).with_call(call.id)
+            return list_files(context.workspace).with_call(call.id)
         case "filesystem.read":
-            return read_file(resolve_workspace_path(workspace, call.arguments["path"])).with_call(call.id)
+            return read_file(resolve_workspace_path(context.workspace, call.arguments["path"])).with_call(call.id)
         case "filesystem.write":
-            path = resolve_workspace_path(workspace, call.arguments["path"])
+            path = resolve_workspace_path(context.workspace, call.arguments["path"])
             preview = preview_write(path, call.arguments["content"])
             request = PermissionRequest(
                 ActionKind.WRITE_FILES,
                 f"Create or modify {path.name}",
                 reason=f"Update {path.name} for the current task.",
             )
-            if interaction is not None and interaction.approve(request, preview) is Approval.DENY:
+            if _approve(request, context, preview) is Approval.DENY:
                 return ToolResult(call.name, "write denied", tool_call_id=call.id, success=False, error="Write denied")
-            if interaction is not None:
-                record_file_snapshot(interaction.trust.store, workspace, path, request.description)
+            if context.interaction is not None:
+                record_file_snapshot(context.interaction.trust.store, context.workspace, path, request.description)
             return write_file(path, call.arguments["content"]).with_call(call.id)
         case "workspace.search":
-            return search_workspace(workspace, call.arguments["term"]).with_call(call.id)
+            return search_workspace(context.workspace, call.arguments["term"]).with_call(call.id)
         case "git.status":
-            return git_status(workspace).with_call(call.id)
+            return git_status(context.workspace).with_call(call.id)
         case "git.diff":
-            return git_diff(workspace).with_call(call.id)
+            return git_diff(context.workspace).with_call(call.id)
         case "git.log":
-            return git_log(workspace).with_call(call.id)
+            return git_log(context.workspace).with_call(call.id)
         case "shell.run":
             assessment = assess_shell_command(call.arguments["command"])
             if not assessment.safe:
                 return ToolResult(call.name, "shell command rejected", tool_call_id=call.id, success=False, error=assessment.reason)
-            request = PermissionRequest(ActionKind.SHELL, f"Run shell command: {call.arguments['command']}")
-            if interaction is not None and interaction.approve(request) is Approval.DENY:
+            request = PermissionRequest(
+                ActionKind.SHELL,
+                f"Run shell command: {call.arguments['command']}",
+                reason="Shell may modify files and may not be fully undoable.",
+            )
+            if _approve(request, context) is Approval.DENY:
                 return ToolResult(call.name, "shell denied", tool_call_id=call.id, success=False, error="Shell access denied")
-            return shell_run(workspace, call.arguments["command"]).with_call(call.id)
+            return shell_run(context.workspace, call.arguments["command"]).with_call(call.id)
         case "http.get":
             url = call.arguments["url"]
             host = urlparse(url).netloc
             if not host:
                 raise ToolValidationError('"url" must include a host.')
-            if interaction is not None and interaction.approve_network("GET", url, host) is Approval.DENY:
+            if _approve_network("GET", url, host, context) is Approval.DENY:
                 return ToolResult(call.name, "network denied", tool_call_id=call.id, success=False, error="Network access denied")
             return http_get(url).with_call(call.id)
         case unreachable:
@@ -173,3 +188,30 @@ def _schema_for(name: str) -> ToolSchema:
         if schema.name == name:
             return schema
     raise ToolValidationError(f"Unknown tool: {name}")
+
+
+def _approve(request: PermissionRequest, context: ToolExecutionContext, preview=None) -> Approval:
+    if context.interaction is not None:
+        return context.interaction.approve(request, preview)
+    decision = decide_permission(DEFAULT_CONFIG.permissions, request, interactive=False)
+    match decision:
+        case PermissionDecision.ALLOW:
+            return Approval.ONCE
+        case PermissionDecision.ASK | PermissionDecision.BLOCK:
+            return Approval.DENY
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _approve_network(method: str, url: str, host: str, context: ToolExecutionContext) -> Approval:
+    if context.interaction is not None:
+        return context.interaction.approve_network(method, url, host)
+    request = PermissionRequest(ActionKind.NETWORK_READ, f"{method} {host}")
+    decision = decide_permission(DEFAULT_CONFIG.permissions, request, interactive=False)
+    match decision:
+        case PermissionDecision.ALLOW:
+            return Approval.ONCE
+        case PermissionDecision.ASK | PermissionDecision.BLOCK:
+            return Approval.DENY
+        case unreachable:
+            assert_never(unreachable)

@@ -2,16 +2,19 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from time import perf_counter
-from typing import assert_never
+from typing import Literal, assert_never
 
-from sovyn.interaction import Approval, Interaction
-from sovyn.permissions import ActionKind, PermissionRequest
 from sovyn.sessions import create_session
 from sovyn.stats import RunMetric, record_metric, record_workflow_event
 from sovyn.storage import Store, record_trajectory
-from sovyn.tools import ToolResult, git_diff, git_log, git_status, list_files, shell_run, write_file
+from sovyn.tool_protocol import ToolCall
+from sovyn.interaction import Interaction
+from sovyn.tool_registry import ToolValidationError, execute_validated_tool, validate_tool_call
+from sovyn.tools import ToolResult
 from sovyn.ui import DiamondState, Renderer
 from sovyn.workflows import StepKind, Workflow, WorkflowStep, load_workflow, save_workflow, workflow_path
+
+WorkflowStatus = Literal["success", "failed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +23,7 @@ class WorkflowRunResult:
     tool_calls: int
     model_calls: int
     duration_seconds: float
+    status: WorkflowStatus
     repaired: bool = False
     evolved: bool = False
 
@@ -57,6 +61,7 @@ def run_workflow(
                         result = _run_step(active_step, workspace, interaction)
                 if result is not None:
                     results.append(result)
+                    renderer.line(DiamondState.COMPLETED if result.success else DiamondState.FAILED, result.summary)
                 if result is not None and not result.success:
                     break
             case StepKind.AGENT_REQUIRED | StepKind.MODEL_REQUIRED:
@@ -69,7 +74,8 @@ def run_workflow(
         repaired_steps.append(active_step)
     duration = perf_counter() - started
     success = all(result.success for result in results)
-    session_id = create_session(store, f"workflow:{workflow.name}", "success" if success else "failed", len(results), duration)
+    status: WorkflowStatus = "success" if success else "failed"
+    session_id = create_session(store, f"workflow:{workflow.name}", status, len(results), duration)
     record_trajectory(store, session_id, tuple(results))
     record_workflow_event(store, "match", workflow.name)
     record_metric(
@@ -86,38 +92,44 @@ def run_workflow(
     evolved = success and repaired and _save_evolved_workflow(path.parent, workflow, tuple(repaired_steps))
     if evolved:
         record_workflow_event(store, "evolution", workflow.name)
-    renderer.line(DiamondState.COMPLETED, "Workflow completed")
+    renderer.line(DiamondState.COMPLETED if success else DiamondState.FAILED, "Workflow completed" if success else "Workflow failed")
     renderer.line(DiamondState.WAITING, f"Duration       {duration:.1f}s")
     renderer.line(DiamondState.WAITING, f"Tool calls     {len(results)}")
     renderer.line(DiamondState.WAITING, f"Model calls    {model_calls}")
     if evolved:
         renderer.line(DiamondState.COMPLETED, f"Workflow evolved · v{workflow.version} → v{workflow.version + 1}")
-    return WorkflowRunResult(session_id, len(results), model_calls, duration, repaired, evolved)
+    return WorkflowRunResult(session_id, len(results), model_calls, duration, status, repaired, evolved)
 
 
-def _run_step(step: WorkflowStep, workspace: Path, interaction: Interaction) -> ToolResult | None:
+def _run_step(step: WorkflowStep, workspace: Path, interaction: Interaction) -> ToolResult:
+    call = _tool_call_from_step(step, workspace)
+    try:
+        validated = validate_tool_call(call)
+    except ToolValidationError as exc:
+        return ToolResult(step.tool, "tool rejected", tool_call_id=call.id, success=False, error=str(exc))
+    return execute_validated_tool(validated, workspace, interaction)
+
+
+def _tool_call_from_step(step: WorkflowStep, workspace: Path) -> ToolCall:
     match step.tool:
-        case "filesystem.list":
-            return list_files(workspace)
+        case "filesystem.list" | "git.status" | "git.diff" | "git.log":
+            return ToolCall(f"workflow:{step.tool}", step.tool, {})
+        case "filesystem.read":
+            return ToolCall("workflow:filesystem.read", step.tool, {"path": _resolve_vars(step.argument, workspace)})
         case "filesystem.write":
-            path = (workspace / _resolve_vars(step.argument, workspace)).resolve()
-            request = PermissionRequest(ActionKind.WRITE_FILES, f"Create or modify {path.name}", reason=step.summary)
-            if interaction.approve(request) is Approval.DENY:
-                return None
-            return write_file(path, _resolve_vars(step.content, workspace))
-        case "git.status":
-            return git_status(workspace)
-        case "git.diff":
-            return git_diff(workspace)
-        case "git.log":
-            return git_log(workspace)
+            return ToolCall(
+                "workflow:filesystem.write",
+                step.tool,
+                {"path": _resolve_vars(step.argument, workspace), "content": _resolve_vars(step.content, workspace)},
+            )
+        case "workspace.search":
+            return ToolCall("workflow:workspace.search", step.tool, {"term": _resolve_vars(step.argument, workspace)})
         case "shell.run":
-            request = PermissionRequest(ActionKind.SHELL, f"Run shell command: {step.argument}", reason=step.summary)
-            if interaction.approve(request) is Approval.DENY:
-                return None
-            return shell_run(workspace, step.argument)
+            return ToolCall("workflow:shell.run", step.tool, {"command": _resolve_vars(step.argument, workspace)})
+        case "http.get":
+            return ToolCall("workflow:http.get", step.tool, {"url": _resolve_vars(step.argument, workspace)})
         case _:
-            return None
+            return ToolCall(f"workflow:{step.tool}", step.tool, {})
 
 
 def _resolve_vars(value: str, workspace: Path) -> str:

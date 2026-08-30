@@ -105,7 +105,7 @@ def _try_workflow_replay(request: str, runtime: AgentRuntime) -> AgentResult | N
     )
     return AgentResult(
         session_id=result.session_id,
-        response="Workflow completed",
+        response="Workflow completed" if result.status == "success" else "Workflow failed",
         tools=(),
         duration_seconds=result.duration_seconds,
         workflow=match.workflow,

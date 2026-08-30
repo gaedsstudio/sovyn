@@ -239,7 +239,8 @@ def test_replay_enforces_permissions(tmp_path: Path) -> None:
 
     result = run_workflow(workflow_path(tmp_path, workflow.name), tmp_path, store, Renderer(StringIO(), False), interaction)
 
-    assert result.tool_calls == 0
+    assert result.tool_calls == 1
+    assert result.status == "failed"
     assert not (tmp_path / "known.txt").exists()
 
 

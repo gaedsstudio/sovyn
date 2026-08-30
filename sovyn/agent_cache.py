@@ -31,7 +31,7 @@ class ToolCallCache:
             self.results[self._key(call)] = result
 
     def observe(self, result: ToolResult) -> None:
-        if result.success and result.name in MUTATING_TOOLS:
+        if result.name in MUTATING_TOOLS:
             self.revision += 1
             self.results.clear()
 

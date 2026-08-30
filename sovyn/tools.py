@@ -26,7 +26,18 @@ def list_files(workspace: Path) -> ToolResult:
 
 
 def read_file(path: Path) -> ToolResult:
-    content = path.read_text(encoding="utf-8")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ToolResult("filesystem.read", "read failed", success=False, error=f"{path.name} not found")
+    except PermissionError:
+        return ToolResult("filesystem.read", "read failed", success=False, error=f"Permission denied: {path.name}")
+    except UnicodeDecodeError:
+        return ToolResult("filesystem.read", "read failed", success=False, error=f"{path.name} is not valid UTF-8 text")
+    except OSError as exc:
+        return ToolResult("filesystem.read", "read failed", success=False, error=str(exc))
+    if "\x00" in content:
+        return ToolResult("filesystem.read", "read failed", success=False, error=f"{path.name} is not valid UTF-8 text")
     return ToolResult("filesystem.read", f"{len(content)} characters read", content)
 
 
@@ -54,17 +65,26 @@ def search_workspace(workspace: Path, term: str) -> ToolResult:
 
 def git_status(workspace: Path) -> ToolResult:
     result = subprocess.run(["git", "status", "--short"], cwd=workspace, capture_output=True, text=True, check=False)
+    failure = _git_failure("git.status", result)
+    if failure is not None:
+        return failure
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     return ToolResult("git.status", f"{len(lines)} changed paths", result.stdout)
 
 
 def git_diff(workspace: Path) -> ToolResult:
     result = subprocess.run(["git", "diff", "--stat"], cwd=workspace, capture_output=True, text=True, check=False)
+    failure = _git_failure("git.diff", result)
+    if failure is not None:
+        return failure
     return ToolResult("git.diff", result.stdout.strip() or "no diff", result.stdout)
 
 
 def git_log(workspace: Path) -> ToolResult:
     result = subprocess.run(["git", "log", "-5", "--oneline"], cwd=workspace, capture_output=True, text=True, check=False)
+    failure = _git_failure("git.log", result)
+    if failure is not None:
+        return failure
     lines = [line for line in result.stdout.splitlines() if line.strip()]
     return ToolResult("git.log", f"{len(lines)} commits", result.stdout)
 
@@ -94,3 +114,10 @@ def http_get(url: str) -> ToolResult:
 
 def _ignored(path: Path) -> bool:
     return any(part in IGNORED_DIRECTORIES for part in path.parts)
+
+
+def _git_failure(name: str, result: subprocess.CompletedProcess[str]) -> ToolResult | None:
+    if result.returncode == 0:
+        return None
+    error = (result.stderr or result.stdout).strip()
+    return ToolResult(name, "git command failed", result.stdout + result.stderr, success=False, error=error)
