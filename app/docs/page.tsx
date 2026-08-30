@@ -11,6 +11,10 @@ const docs = [
   ["GitHub", "https://github.com/gaedsstudio/sovyn"],
 ] as const;
 
+function isExternalUrl(href: string): boolean {
+  return href.startsWith("https://");
+}
+
 export default function DocsPage() {
   return (
     <section className="rail section">
@@ -25,12 +29,25 @@ export default function DocsPage() {
         </p>
       </div>
       <div className="grid">
-        {docs.map(([label, href]) => (
-          <Link className="card feature-card" href={href} key={label}>
-            <h2>{label}</h2>
-            <p className="muted">{href}</p>
-          </Link>
-        ))}
+        {docs.map(([label, href]) =>
+          isExternalUrl(href) ? (
+            <a
+              className="card feature-card"
+              href={href}
+              key={label}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <h2>{label}</h2>
+              <p className="muted">{href}</p>
+            </a>
+          ) : (
+            <Link className="card feature-card" href={href} key={label}>
+              <h2>{label}</h2>
+              <p className="muted">{href}</p>
+            </Link>
+          ),
+        )}
       </div>
     </section>
   );

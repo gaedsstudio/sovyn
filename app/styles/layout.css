@@ -56,9 +56,19 @@
 }
 
 .band-dark {
+  display: flex;
+  min-block-size: 424px;
+  align-items: center;
   background: var(--surface-inset);
   color: white;
   text-align: center;
+}
+
+.band-dark .rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .band-dark .section-title {
@@ -66,6 +76,7 @@
 }
 
 .band-dark .lead {
+  margin: var(--space-6) auto var(--space-8);
   color: #94a3b8;
 }
 

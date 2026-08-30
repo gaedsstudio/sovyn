@@ -2,6 +2,8 @@ import Link from "next/link";
 import { FeatureGrid, PackageCard } from "../components/site";
 import { listPackages } from "../lib/registry/registry";
 
+const githubUrl = "https://github.com/gaedsstudio/sovyn";
+
 const values = [
   [
     "Model Choice",
@@ -50,9 +52,14 @@ export default function HomePage() {
           <Link className="button primary" href="/hub">
             Explore Hub
           </Link>
-          <Link className="button" href="https://github.com/gaedsstudio/sovyn">
+          <a
+            className="button"
+            href={githubUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
             View on GitHub
-          </Link>
+          </a>
         </div>
       </section>
       <FeatureGrid title="Nothing hidden from the user" items={values} />
@@ -126,12 +133,14 @@ export default function HomePage() {
             Open source, inspectable, and built for developers who value
             ownership.
           </p>
-          <Link
+          <a
             className="button primary"
-            href="https://github.com/gaedsstudio/sovyn"
+            href={githubUrl}
+            rel="noreferrer"
+            target="_blank"
           >
             Get Started with SOVYN
-          </Link>
+          </a>
         </div>
       </section>
     </>

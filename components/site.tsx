@@ -54,7 +54,12 @@ export function PackageCard({ item }: Readonly<{ item: PackageRecord }>) {
           <span className="badge">{item.license}</span>
         </div>
         <div className="cluster">
-          <a className="button" href={item.source.repository}>
+          <a
+            className="button"
+            href={item.source.repository}
+            rel="noreferrer"
+            target="_blank"
+          >
             Source
           </a>
           <a className="button primary" href={`/package/${item.slug}`}>

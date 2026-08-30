@@ -1,4 +1,6 @@
-import Link from "next/link";
+const githubUrl = "https://github.com/gaedsstudio/sovyn";
+const githubIssueChooserUrl =
+  "https://github.com/gaedsstudio/sovyn/issues/new/choose";
 
 const requirements = [
   "Open-source repository",
@@ -29,15 +31,17 @@ export default function PublishPage() {
         ))}
       </div>
       <div className="cluster">
-        <Link
+        <a
           className="button primary"
-          href="https://github.com/gaedsstudio/sovyn/issues/new/choose"
+          href={githubIssueChooserUrl}
+          rel="noreferrer"
+          target="_blank"
         >
           Submit a package
-        </Link>
-        <Link className="button" href="https://github.com/gaedsstudio/sovyn">
+        </a>
+        <a className="button" href={githubUrl} rel="noreferrer" target="_blank">
           Contribute
-        </Link>
+        </a>
       </div>
     </section>
   );

@@ -1,4 +1,5 @@
-import Link from "next/link";
+const githubUrl = "https://github.com/gaedsstudio/sovyn";
+const discordUrl = "https://discord.gg/bxCnrFFcsg";
 
 export default function AboutPage() {
   return (
@@ -12,15 +13,22 @@ export default function AboutPage() {
           reusable workflows to reduce dependence on closed AI services.
         </p>
         <div className="cluster">
-          <Link
+          <a
             className="button primary"
-            href="https://github.com/gaedsstudio/sovyn"
+            href={githubUrl}
+            rel="noreferrer"
+            target="_blank"
           >
             View Source
-          </Link>
-          <Link className="button" href="https://discord.gg/bxCnrFFcsg">
+          </a>
+          <a
+            className="button"
+            href={discordUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
             Join Discord
-          </Link>
+          </a>
         </div>
       </div>
     </section>

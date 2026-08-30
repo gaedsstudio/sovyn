@@ -53,7 +53,13 @@ export default async function PackagePage({ params }: PackagePageProps) {
               <tr>
                 <th scope="row">Repository</th>
                 <td>
-                  <a href={item.source.repository}>{item.source.repository}</a>
+                  <a
+                    href={item.source.repository}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {item.source.repository}
+                  </a>
                 </td>
               </tr>
               <tr>

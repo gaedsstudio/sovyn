@@ -6,6 +6,10 @@ import "./globals.css";
 const siteDescription =
   "SOVYN is an open-source, local-first agent runtime for tools, workflows and reusable automation.";
 
+const githubUrl = "https://github.com/gaedsstudio/sovyn";
+const githubIssuesUrl = "https://github.com/gaedsstudio/sovyn/issues";
+const discordUrl = "https://discord.gg/bxCnrFFcsg";
+
 const sans = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-sans",
@@ -41,8 +45,8 @@ export const metadata: Metadata = {
 const navLinks = [
   { href: "/hub", label: "Hub" },
   { href: "/docs", label: "Docs" },
-  { href: "https://github.com/gaedsstudio/sovyn", label: "GitHub" },
-  { href: "https://discord.gg/bxCnrFFcsg", label: "Discord" },
+  { href: githubUrl, label: "GitHub" },
+  { href: discordUrl, label: "Discord" },
 ] as const;
 
 export default function RootLayout({
@@ -58,18 +62,31 @@ export default function RootLayout({
                 SOVYN
               </Link>
               <div className="nav-links">
-                {navLinks.map((link) => (
-                  <Link key={link.href} href={link.href}>
-                    {link.label}
-                  </Link>
-                ))}
+                {navLinks.map((link) =>
+                  link.href.startsWith("https://") ? (
+                    <a
+                      href={link.href}
+                      key={link.href}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {link.label}
+                    </a>
+                  ) : (
+                    <Link href={link.href} key={link.href}>
+                      {link.label}
+                    </Link>
+                  ),
+                )}
               </div>
-              <Link
+              <a
                 className="button primary nav-cta"
-                href="https://github.com/gaedsstudio/sovyn"
+                href={githubUrl}
+                rel="noreferrer"
+                target="_blank"
               >
                 Get Started
-              </Link>
+              </a>
             </nav>
           </header>
           <main>{children}</main>
@@ -80,13 +97,15 @@ export default function RootLayout({
                 <p className="muted">Open Source Agent Infrastructure</p>
               </div>
               <div className="nav-links">
-                <Link href="https://github.com/gaedsstudio/sovyn">
+                <a href={githubUrl} rel="noreferrer" target="_blank">
                   View Source
-                </Link>
-                <Link href="https://github.com/gaedsstudio/sovyn/issues">
+                </a>
+                <a href={githubIssuesUrl} rel="noreferrer" target="_blank">
                   Report Issue
-                </Link>
-                <Link href="https://discord.gg/bxCnrFFcsg">Discord</Link>
+                </a>
+                <a href={discordUrl} rel="noreferrer" target="_blank">
+                  Discord
+                </a>
                 <Link href="/security">Security</Link>
               </div>
             </div>
