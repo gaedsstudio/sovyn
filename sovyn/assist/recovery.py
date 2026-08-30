@@ -1,14 +1,19 @@
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Final
 
 from sovyn.config import InterfaceLanguage
+from sovyn.path_safety import PathSafetyError, resolve_workspace_path
 from sovyn.tool_protocol import ToolCall
 from sovyn.tool_registry import ToolValidationError, validate_tool_call
 from sovyn.tools import ToolResult
 
 from .language import LANGUAGE_LABELS
 from .types import RecoveryAttempt
+
+RECOVERY_EVIDENCE_LIMIT: Final = 2500
 
 
 def parse_text_tool_call(content: str) -> tuple[ToolCall, ...]:
@@ -46,14 +51,17 @@ def recovery_attempt(
         return None
     evidence = "\n".join(_compact_evidence(tool) for tool in relevant[-3:])
     prompt = (
-        "GOAL:\n"
+        "ORIGINAL GOAL:\n"
         f"{request}\n\n"
-        "EVIDENCE:\n"
+        "RELEVANT EVIDENCE:\n"
         f"{evidence}\n\n"
         "FAILURE:\n"
         f"{reason}\n\n"
-        "ACTION:\n"
-        "Return final answer only. Do not call tools.\n"
+        "RULES:\n"
+        "- Do not call tools.\n"
+        "- Answer the original request.\n"
+        "- Do not describe or restate the task.\n"
+        "- Use the supplied evidence.\n"
         f"Language: {LANGUAGE_LABELS[language]}."
     )
     return RecoveryAttempt(prompt, reason)
@@ -66,7 +74,13 @@ def exact_write_verified(request: str, workspace: Path, tools: tuple[ToolResult,
     if parsed is None:
         return None
     path, content = parsed
-    target = (workspace / path).resolve()
+    try:
+        target = resolve_workspace_path(workspace, path)
+    except PathSafetyError:
+        return None
+    written_paths = _successful_write_paths(tools)
+    if target not in written_paths:
+        return None
     try:
         if target.is_file() and target.read_text(encoding="utf-8") == content:
             return f"{path} updated."
@@ -77,11 +91,25 @@ def exact_write_verified(request: str, workspace: Path, tools: tuple[ToolResult,
 
 def _compact_evidence(tool: ToolResult) -> str:
     if tool.name == "filesystem.read":
-        return f"- {tool.summary}"
+        return f"- {tool.summary}\n{_truncate(tool.output)}"
     if tool.name == "filesystem.write":
         status = "no change" if tool.no_change else "written"
         return f"- {Path(tool.output).name}: {status}"
     return f"- {tool.name}: {tool.summary}"
+
+
+def _truncate(content: str) -> str:
+    if len(content) <= RECOVERY_EVIDENCE_LIMIT:
+        return content
+    return f"{content[:RECOVERY_EVIDENCE_LIMIT]}\n[truncated]"
+
+
+def _successful_write_paths(tools: Iterable[ToolResult]) -> frozenset[Path]:
+    paths: set[Path] = set()
+    for tool in tools:
+        if tool.success and tool.name == "filesystem.write":
+            paths.add(Path(tool.output).resolve())
+    return frozenset(paths)
 
 
 def _parse_exact_write_request(request: str) -> tuple[str, str] | None:
@@ -91,7 +119,11 @@ def _parse_exact_write_request(request: str) -> tuple[str, str] | None:
     korean_quoted = re.search(r"([^\s]+\.txt).*?[\"'`](.+?)[\"'`].*?(?:작성|써|만들)", request, flags=re.DOTALL)
     if korean_quoted is not None:
         return korean_quoted.group(1), korean_quoted.group(2).strip()
-    korean = re.search(r"([^\s]+\.txt).*?만들고\s+(.+?)\s+(?:라고|이라고|이라는)\s*작성", request, flags=re.DOTALL)
+    korean = re.search(
+        r"([^\s]+\.txt).*?만들고\s+(.+?)\s+(?:라고|이라고|이라는)\s*(?:정확히\s*)?작성",
+        request,
+        flags=re.DOTALL,
+    )
     if korean is not None:
         return korean.group(1), korean.group(2).strip()
     return None

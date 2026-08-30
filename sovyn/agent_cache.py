@@ -16,7 +16,7 @@ CACHED_REPEAT_FEEDBACK = (
     "Use the existing observation and continue toward completing the user's task."
 )
 CACHED_STALL_MESSAGE = "Model stalled on an already satisfied read-only action."
-MAX_IDENTICAL_CACHE_REUSES = 2
+MAX_IDENTICAL_CACHE_REUSES = 1
 
 
 @dataclass(slots=True)  # noqa: MUTABLE_OK

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import StrEnum, unique
 from pathlib import Path
+from time import perf_counter
 from typing import assert_never
 from urllib.parse import urlparse
 
@@ -160,11 +161,21 @@ def _execute_validated_tool(call: ValidatedToolCall, context: ToolExecutionConte
                 f"Create or modify {path.name}",
                 reason=f"Update {path.name} for the current task.",
             )
-            if _approve(request, context, preview) is Approval.DENY:
-                return ToolResult(call.name, "write denied", tool_call_id=call.id, success=False, error="Write denied")
+            approval, permission_wait = _approve_timed(request, context, preview)
+            if approval is Approval.DENY:
+                return ToolResult(
+                    call.name,
+                    "write denied",
+                    tool_call_id=call.id,
+                    success=False,
+                    error="Write denied",
+                    permission_wait_seconds=permission_wait,
+                )
             if context.interaction is not None:
                 record_file_snapshot(context.interaction.trust.store, context.workspace, path, request.description)
-            return write_file(path, call.arguments["content"]).with_call(call.id)
+            execution_started = perf_counter()
+            result = write_file(path, call.arguments["content"]).with_call(call.id)
+            return result.with_timing(permission_wait, perf_counter() - execution_started)
         case "workspace.search":
             return search_workspace(context.workspace, call.arguments["term"]).with_call(call.id)
         case "git.status":
@@ -184,21 +195,37 @@ def _execute_validated_tool(call: ValidatedToolCall, context: ToolExecutionConte
                 f"Run shell command: {call.arguments['command']}",
                 reason="Shell may modify files and may not be fully undoable.",
             )
-            if _approve(request, context) is Approval.DENY:
+            approval, permission_wait = _approve_timed(request, context)
+            if approval is Approval.DENY:
                 return ToolResult(
-                    call.name, "shell denied", tool_call_id=call.id, success=False, error="Shell access denied"
+                    call.name,
+                    "shell denied",
+                    tool_call_id=call.id,
+                    success=False,
+                    error="Shell access denied",
+                    permission_wait_seconds=permission_wait,
                 )
-            return shell_run(context.workspace, call.arguments["command"]).with_call(call.id)
+            execution_started = perf_counter()
+            result = shell_run(context.workspace, call.arguments["command"]).with_call(call.id)
+            return result.with_timing(permission_wait, perf_counter() - execution_started)
         case "http.get":
             url = call.arguments["url"]
             host = urlparse(url).netloc
             if not host:
                 raise ToolValidationError('"url" must include a host.')
-            if _approve_network("GET", url, host, context) is Approval.DENY:
+            approval, permission_wait = _approve_network_timed("GET", url, host, context)
+            if approval is Approval.DENY:
                 return ToolResult(
-                    call.name, "network denied", tool_call_id=call.id, success=False, error="Network access denied"
+                    call.name,
+                    "network denied",
+                    tool_call_id=call.id,
+                    success=False,
+                    error="Network access denied",
+                    permission_wait_seconds=permission_wait,
                 )
-            return http_get(url).with_call(call.id)
+            execution_started = perf_counter()
+            result = http_get(url).with_call(call.id)
+            return result.with_timing(permission_wait, perf_counter() - execution_started)
         case unreachable:
             assert_never(unreachable)
 
@@ -230,6 +257,12 @@ def _approve(request: PermissionRequest, context: ToolExecutionContext, preview=
             assert_never(unreachable)
 
 
+def _approve_timed(request: PermissionRequest, context: ToolExecutionContext, preview=None) -> tuple[Approval, float]:
+    started = perf_counter()
+    approval = _approve(request, context, preview)
+    return approval, perf_counter() - started
+
+
 def _approve_network(method: str, url: str, host: str, context: ToolExecutionContext) -> Approval:
     if context.interaction is not None:
         return context.interaction.approve_network(method, url, host)
@@ -242,3 +275,9 @@ def _approve_network(method: str, url: str, host: str, context: ToolExecutionCon
             return Approval.DENY
         case unreachable:
             assert_never(unreachable)
+
+
+def _approve_network_timed(method: str, url: str, host: str, context: ToolExecutionContext) -> tuple[Approval, float]:
+    started = perf_counter()
+    approval = _approve_network(method, url, host, context)
+    return approval, perf_counter() - started

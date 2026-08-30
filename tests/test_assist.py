@@ -129,7 +129,30 @@ def test_duplicate_read_triggers_bounded_final_recovery(tmp_path: Path) -> None:
     assert result.status is RunStatus.SUCCESS
     assert result.response == "복구된 최종 답변입니다."
     assert len(provider.generate_prompts) == 1
-    assert result.model_calls == 5
+    assert result.model_calls == 3
+
+
+def test_recovery_preserves_read_evidence_for_final_answer(tmp_path: Path) -> None:
+    readme = (
+        "# SOVYN\n\n"
+        "SOVYN turns successful AI work into reusable local-first terminal workflows.\n"
+        "It is open source and built for transparent developer automation.\n"
+    )
+    (tmp_path / "README.md").write_text(readme, encoding="utf-8")
+    read = ToolCall("read", "filesystem.read", {"path": "README.md"})
+    request = "README.md를 읽고 이 프로젝트가 뭔지 한국어 한 문장으로 요약해줘"
+    provider = SequenceProvider(
+        [ProviderTurn("", (read,)), ProviderTurn("", (read,)), ProviderTurn("", (read,)), ProviderTurn("", (read,))]
+    )
+
+    result = run_agent(request, _runtime(tmp_path, provider))
+
+    recovery_prompt = provider.generate_prompts[0]
+    assert result.status is RunStatus.SUCCESS
+    assert request in recovery_prompt
+    assert "turns successful AI work into reusable local-first terminal workflows" in recovery_prompt
+    assert "Available tools:" not in recovery_prompt
+    assert "filesystem.write" not in recovery_prompt
 
 
 def test_duplicate_write_is_physical_once_and_no_second_permission(tmp_path: Path) -> None:
@@ -142,6 +165,24 @@ def test_duplicate_write_is_physical_once_and_no_second_permission(tmp_path: Pat
     assert result.status is RunStatus.SUCCESS
     assert (tmp_path / "telegram-test.txt").read_text(encoding="utf-8") == "Hello from Telegram"
     assert tuple(tool.no_change for tool in result.tools if tool.name == "filesystem.write") == (False, True)
+
+
+def test_exact_write_with_modifier_is_verified_success_after_repeat(tmp_path: Path) -> None:
+    write = ToolCall("write", "filesystem.write", {"path": "assist-test.txt", "content": "Hello from SOVYN"})
+    provider = SequenceProvider([ProviderTurn("", (write,)), ProviderTurn("", (write,)), ProviderTurn("", (write,))])
+    runtime = _runtime(tmp_path, provider, answers=("y",))
+
+    result = run_agent(
+        "assist-test.txt 파일을 만들고 Hello from SOVYN 이라고 정확히 작성해줘",
+        runtime,
+    )
+
+    writes = tuple(tool for tool in result.tools if tool.name == "filesystem.write")
+    assert result.status is RunStatus.SUCCESS
+    assert (tmp_path / "assist-test.txt").read_text(encoding="utf-8") == "Hello from SOVYN"
+    assert len(writes) == 2
+    assert tuple(tool.no_change for tool in writes) == (False, True)
+    assert result.workflow is not None
 
 
 def test_korean_exact_write_can_be_verified_after_repeat(tmp_path: Path) -> None:
@@ -167,6 +208,17 @@ def test_recovery_is_bounded_and_stalled_remains_stalled_when_no_evidence(tmp_pa
 
     assert result.status is RunStatus.STALLED
     assert len(provider.generate_prompts) == 0
+    assert result.workflow is None
+
+
+def test_non_exact_write_does_not_become_deterministic_success(tmp_path: Path) -> None:
+    write = ToolCall("write", "filesystem.write", {"path": "agent.py", "content": "changed"})
+    provider = SequenceProvider([ProviderTurn("", (write,)), ProviderTurn("", (write,)), ProviderTurn("", (write,))])
+
+    result = run_agent("refactor agent.py to improve reliability", _runtime(tmp_path, provider, answers=("y",)))
+
+    assert result.status is RunStatus.STALLED
+    assert (tmp_path / "agent.py").read_text(encoding="utf-8") == "changed"
     assert result.workflow is None
 
 

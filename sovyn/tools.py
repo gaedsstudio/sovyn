@@ -26,9 +26,34 @@ class ToolResult:
     success: bool = True
     error: str = ""
     no_change: bool = False
+    permission_wait_seconds: float = 0.0
+    execution_seconds: float = 0.0
 
     def with_call(self, tool_call_id: str) -> "ToolResult":
-        return ToolResult(self.name, self.summary, self.output, tool_call_id, self.success, self.error, self.no_change)
+        return ToolResult(
+            self.name,
+            self.summary,
+            self.output,
+            tool_call_id,
+            self.success,
+            self.error,
+            self.no_change,
+            self.permission_wait_seconds,
+            self.execution_seconds,
+        )
+
+    def with_timing(self, permission_wait_seconds: float, execution_seconds: float) -> "ToolResult":
+        return ToolResult(
+            self.name,
+            self.summary,
+            self.output,
+            self.tool_call_id,
+            self.success,
+            self.error,
+            self.no_change,
+            permission_wait_seconds,
+            execution_seconds,
+        )
 
 
 def list_files(workspace: Path) -> ToolResult:

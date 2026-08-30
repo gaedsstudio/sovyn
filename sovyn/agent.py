@@ -273,6 +273,17 @@ def _run_model_loop(original_request: str, request: str, runtime: AgentRuntime, 
                     runtime.renderer.line(DiamondState.ATTENTION, cached_repeat)
                     return ModelLoopResult(tuple(calls), tuple(results), cached_repeat, model_calls, RunStatus.STALLED)
                 if cached_repeat is not None:
+                    if not recovery_used and not _requires_mutation(original_request):
+                        recovered = _recover_final(
+                            original_request,
+                            runtime,
+                            tuple(results),
+                            prepared.language,
+                            cached_repeat,
+                        )
+                        recovery_used = True
+                        if recovered is not None:
+                            return _with_model_calls(recovered, model_calls + 1)
                     feedback = cached_repeat
             elif not result.success:
                 feedback = _tool_rejection_feedback(result)
@@ -302,7 +313,10 @@ def _execute_tool_call(call: ToolCall, runtime: AgentRuntime, cache: ToolCallCac
     state = DiamondState.COMPLETED if result.success else DiamondState.FAILED
     runtime.renderer.line(state, result.summary)
     if runtime.debug:
-        runtime.renderer.line(DiamondState.WAITING, f"{validated.name:<18} {elapsed:.2f}s")
+        if result.permission_wait_seconds > 0:
+            runtime.renderer.line(DiamondState.WAITING, f"permission wait     {result.permission_wait_seconds:.2f}s")
+        execution = result.execution_seconds or max(0.0, elapsed - result.permission_wait_seconds)
+        runtime.renderer.line(DiamondState.WAITING, f"{validated.name:<18} {execution:.2f}s")
     return result
 
 
@@ -420,6 +434,16 @@ def _requires_action(request: str) -> bool:
     return (
         re.search(
             r"(create|write|change|modify|update|delete|remove|run|execute|check|fix|make|move|rename|작성|생성|만들|수정|변경|삭제|실행|확인)",
+            request.lower(),
+        )
+        is not None
+    )
+
+
+def _requires_mutation(request: str) -> bool:
+    return (
+        re.search(
+            r"(create|write|change|modify|update|delete|remove|fix|make|move|rename|작성|생성|만들|수정|변경|삭제|저장)",
             request.lower(),
         )
         is not None

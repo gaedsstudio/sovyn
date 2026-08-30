@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 
+import pytest
+
 from sovyn.agent import AgentRuntime, RunStatus, run_agent
 from sovyn.config import DEFAULT_CONFIG
 from sovyn.interaction import Interaction
@@ -181,6 +183,20 @@ def test_filesystem_write_permission_error_is_contained(tmp_path: Path, monkeypa
 
     assert result.success is False
     assert "blocked" in result.error
+
+
+def test_filesystem_write_timing_separates_permission_wait(tmp_path: Path, monkeypatch) -> None:
+    store, interaction = _runtime(tmp_path)
+    call = validate_tool_call(ToolCall("write-1", "filesystem.write", {"path": "timed.txt", "content": "x"}))
+    ticks = iter((0.0, 10.0, 10.0, 10.02))
+
+    monkeypatch.setattr("sovyn.tool_registry.perf_counter", lambda: next(ticks))
+
+    result = execute_validated_tool(call, tmp_path, interaction)
+
+    assert result.success is True
+    assert result.permission_wait_seconds == pytest.approx(10.0)
+    assert result.execution_seconds == pytest.approx(0.02)
 
 
 def test_changed_path_ui_deduplicates_repeated_no_op_write(tmp_path: Path) -> None:
