@@ -1,7 +1,7 @@
+import tomllib
 from dataclasses import dataclass
 from enum import StrEnum, unique
 from pathlib import Path
-import tomllib
 
 from sovyn.paths import SovynPaths
 
@@ -11,6 +11,22 @@ class PermissionPolicy(StrEnum):
     ALLOW = "allow"
     ASK = "ask"
     BLOCK = "block"
+
+
+@unique
+class InterfaceLanguage(StrEnum):
+    AUTO = "auto"
+    KO = "ko"
+    EN = "en"
+    JA = "ja"
+    ZH = "zh"
+
+
+@unique
+class AssistMode(StrEnum):
+    OFF = "off"
+    AUTO = "auto"
+    ALWAYS = "always"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +63,25 @@ class UiSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class InterfaceSettings:
+    language: InterfaceLanguage
+    language_selected: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AssistSettings:
+    enabled: bool
+    mode: AssistMode
+
+
+@dataclass(frozen=True, slots=True)
 class SovynConfig:
     model: ModelSettings
     agent: AgentSettings
     permissions: PermissionSettings
     ui: UiSettings
+    interface: InterfaceSettings
+    assist: AssistSettings
 
 
 DEFAULT_CONFIG = SovynConfig(
@@ -66,6 +96,8 @@ DEFAULT_CONFIG = SovynConfig(
         git_commit=PermissionPolicy.ASK,
     ),
     ui=UiSettings(animations=True, timestamps=False),
+    interface=InterfaceSettings(InterfaceLanguage.AUTO, False),
+    assist=AssistSettings(enabled=True, mode=AssistMode.AUTO),
 )
 
 
@@ -73,6 +105,10 @@ def load_config(paths: SovynPaths) -> SovynConfig:
     if not paths.config.exists():
         return DEFAULT_CONFIG
     raw = tomllib.loads(paths.config.read_text(encoding="utf-8"))
+    agent = raw.get("agent", {})
+    permissions = raw.get("permissions", {})
+    interface = raw.get("interface", {})
+    assist = raw.get("assist", {})
     return SovynConfig(
         model=ModelSettings(
             provider=str(raw.get("model", {}).get("provider", DEFAULT_CONFIG.model.provider)),
@@ -82,22 +118,30 @@ def load_config(paths: SovynPaths) -> SovynConfig:
             thinking=bool(raw.get("model", {}).get("thinking", DEFAULT_CONFIG.model.thinking)),
         ),
         agent=AgentSettings(
-            max_steps=int(raw.get("agent", {}).get("max_steps", DEFAULT_CONFIG.agent.max_steps)),
-            context_budget=int(raw.get("agent", {}).get("context_budget", DEFAULT_CONFIG.agent.context_budget)),
-            tool_output_budget=int(raw.get("agent", {}).get("tool_output_budget", DEFAULT_CONFIG.agent.tool_output_budget)),
-            file_content_budget=int(raw.get("agent", {}).get("file_content_budget", DEFAULT_CONFIG.agent.file_content_budget)),
+            max_steps=int(agent.get("max_steps", DEFAULT_CONFIG.agent.max_steps)),
+            context_budget=int(agent.get("context_budget", DEFAULT_CONFIG.agent.context_budget)),
+            tool_output_budget=int(agent.get("tool_output_budget", DEFAULT_CONFIG.agent.tool_output_budget)),
+            file_content_budget=int(agent.get("file_content_budget", DEFAULT_CONFIG.agent.file_content_budget)),
         ),
         permissions=PermissionSettings(
-            read_files=PermissionPolicy(raw.get("permissions", {}).get("read_files", DEFAULT_CONFIG.permissions.read_files)),
-            write_files=PermissionPolicy(raw.get("permissions", {}).get("write_files", DEFAULT_CONFIG.permissions.write_files)),
-            shell=PermissionPolicy(raw.get("permissions", {}).get("shell", DEFAULT_CONFIG.permissions.shell)),
-            network_read=PermissionPolicy(raw.get("permissions", {}).get("network_read", DEFAULT_CONFIG.permissions.network_read)),
-            delete_files=PermissionPolicy(raw.get("permissions", {}).get("delete_files", DEFAULT_CONFIG.permissions.delete_files)),
-            git_commit=PermissionPolicy(raw.get("permissions", {}).get("git_commit", DEFAULT_CONFIG.permissions.git_commit)),
+            read_files=PermissionPolicy(permissions.get("read_files", DEFAULT_CONFIG.permissions.read_files)),
+            write_files=PermissionPolicy(permissions.get("write_files", DEFAULT_CONFIG.permissions.write_files)),
+            shell=PermissionPolicy(permissions.get("shell", DEFAULT_CONFIG.permissions.shell)),
+            network_read=PermissionPolicy(permissions.get("network_read", DEFAULT_CONFIG.permissions.network_read)),
+            delete_files=PermissionPolicy(permissions.get("delete_files", DEFAULT_CONFIG.permissions.delete_files)),
+            git_commit=PermissionPolicy(permissions.get("git_commit", DEFAULT_CONFIG.permissions.git_commit)),
         ),
         ui=UiSettings(
             animations=bool(raw.get("ui", {}).get("animations", DEFAULT_CONFIG.ui.animations)),
             timestamps=bool(raw.get("ui", {}).get("timestamps", DEFAULT_CONFIG.ui.timestamps)),
+        ),
+        interface=InterfaceSettings(
+            InterfaceLanguage(str(interface.get("language", DEFAULT_CONFIG.interface.language.value))),
+            "language" in interface,
+        ),
+        assist=AssistSettings(
+            enabled=bool(assist.get("enabled", DEFAULT_CONFIG.assist.enabled)),
+            mode=AssistMode(str(assist.get("mode", DEFAULT_CONFIG.assist.mode.value))),
         ),
     )
 
@@ -167,6 +211,13 @@ def write_config(path: Path, config: SovynConfig) -> None:
                 "[ui]",
                 f"animations = {str(config.ui.animations).lower()}",
                 f"timestamps = {str(config.ui.timestamps).lower()}",
+                "",
+                "[interface]",
+                f'language = "{config.interface.language.value}"',
+                "",
+                "[assist]",
+                f"enabled = {str(config.assist.enabled).lower()}",
+                f'mode = "{config.assist.mode.value}"',
                 "",
             )
         ),

@@ -1,11 +1,12 @@
-from dataclasses import dataclass, field
 import json
+from dataclasses import dataclass, field
 
 from sovyn.tool_protocol import ToolCall
 from sovyn.tools import ToolResult
 
-
-READ_CACHEABLE_TOOLS = frozenset(("filesystem.list", "filesystem.read", "workspace.search", "git.status", "git.diff", "git.log"))
+READ_CACHEABLE_TOOLS = frozenset(
+    ("filesystem.list", "filesystem.read", "workspace.search", "git.status", "git.diff", "git.log")
+)
 MUTATING_TOOLS = frozenset(
     ("filesystem.write", "filesystem.move", "filesystem.delete", "shell.run", "git.commit", "git.checkout", "git.clean")
 )
@@ -31,7 +32,7 @@ class ToolCallCache:
             self.results[self._key(call)] = result
 
     def observe(self, result: ToolResult) -> None:
-        if result.name in MUTATING_TOOLS:
+        if result.name in MUTATING_TOOLS and not result.no_change:
             self.revision += 1
             self.results.clear()
 

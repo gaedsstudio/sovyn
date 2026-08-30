@@ -157,6 +157,7 @@ sovyn sessions
 sovyn memory
 sovyn config
 sovyn config show
+sovyn config language [auto|ko|en|ja|zh]
 sovyn config select
 sovyn doctor
 sovyn doctor --providers
@@ -165,6 +166,47 @@ sovyn bench
 sovyn undo
 sovyn version
 ```
+
+## SOVYN Link — Telegram (experimental)
+
+SOVYN Link lets a private Telegram bot send tasks to the SOVYN process running on your own machine. It is not a cloud agent, webhook server, or hosted backend.
+
+Setup:
+
+1. Create a Telegram bot with BotFather.
+2. Set the token locally:
+
+   ```powershell
+   $env:SOVYN_TELEGRAM_TOKEN="BOT_TOKEN"
+   ```
+
+3. Start locked mode and send `/whoami` to the bot:
+
+   ```powershell
+   sovyn link telegram
+   ```
+
+4. Allowlist your Telegram user ID, then restart:
+
+   ```powershell
+   $env:SOVYN_TELEGRAM_ALLOWED_USERS="123456789"
+   sovyn link telegram
+   ```
+
+Telegram Link can trigger actions on the local machine. Use it only with an allowlisted private bot and a trusted workspace. This bridge is experimental and is not advertised as production secure yet.
+
+## SOVYN Assist — Language and Recovery (experimental)
+
+SOVYN Assist can apply lightweight language guidance and bounded recovery turns to improve reliability with smaller models. It does not bypass workspace trust, Telegram authorization, tool validation, or permission prompts.
+
+The interface language can be selected on first interactive launch or changed later:
+
+```powershell
+sovyn config language ko
+sovyn config language auto
+```
+
+Supported values are `auto`, `ko`, `en`, `ja`, and `zh`. Telegram Link also supports `/language` for authorized private users. The underlying model remains configurable and visible through `/model` or model-status commands.
 
 ## Workflow Example
 

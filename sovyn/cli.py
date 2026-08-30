@@ -7,11 +7,21 @@ import typer
 
 from sovyn import __version__
 from sovyn.agent import AgentRuntime, run_agent
+from sovyn.assist.language import language_label
 from sovyn.bench import run_bench, run_workflow_intelligence_bench
 from sovyn.cli_provider import register_provider_commands
-from sovyn.config import ModelSettings, load_config, write_config, write_default_config
+from sovyn.config import (
+    InterfaceLanguage,
+    InterfaceSettings,
+    ModelSettings,
+    load_config,
+    write_config,
+    write_default_config,
+)
 from sovyn.demo import run_demo
 from sovyn.fallback import cloud_context_summary, confirm_fallback, split_model_ref
+from sovyn.link.bridge import start_telegram_link
+from sovyn.link.telegram import TelegramConfigError, TelegramError
 from sovyn.memory import add_memory, forget_memory, list_memory
 from sovyn.paths import default_paths
 from sovyn.provider_init import ProviderStatus, resolve_provider
@@ -19,17 +29,36 @@ from sovyn.providers import AnthropicProvider, MockProvider, OllamaProvider, Ope
 from sovyn.repl import run_repl
 from sovyn.runtime import boot
 from sovyn.sessions import get_session, list_sessions
-from sovyn.storage import Store, trajectory_for_session
 from sovyn.stats import render_stats
+from sovyn.storage import Store, trajectory_for_session
 from sovyn.ui import DiamondState, Renderer
 from sovyn.undo import describe_last_undo, restore_last_change
-from sovyn.workflows import list_workflows, load_workflow
 from sovyn.workflow_runner import run_workflow
+from sovyn.workflows import list_workflows, load_workflow
 
-app = typer.Typer(add_completion=False, no_args_is_help=False, context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=False,
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
 register_provider_commands(app)
 
-KNOWN_COMMANDS = {"run", "workflow", "workflows", "session", "sessions", "memory", "config", "doctor", "provider", "bench", "undo", "demo", "version"}
+KNOWN_COMMANDS = {
+    "run",
+    "workflow",
+    "workflows",
+    "session",
+    "sessions",
+    "memory",
+    "config",
+    "doctor",
+    "provider",
+    "bench",
+    "undo",
+    "demo",
+    "version",
+    "link",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +166,13 @@ def _run_one_shot(task: str, flags: OneShotFlags) -> None:
 @app.command()
 def run(workflow: str) -> None:
     runtime = boot(sys.stdin, sys.stdout, interactive=sys.stdout.isatty())
-    run_workflow(runtime.paths.workflows / f"{workflow}.yaml", runtime.paths.workspace, runtime.store, runtime.renderer, runtime.interaction)
+    run_workflow(
+        runtime.paths.workflows / f"{workflow}.yaml",
+        runtime.paths.workspace,
+        runtime.store,
+        runtime.renderer,
+        runtime.interaction,
+    )
 
 
 workflow_app = typer.Typer(add_completion=False)
@@ -220,6 +255,28 @@ def memory(action: str = "show", note: str | None = None, category: str = "expli
 config_app = typer.Typer(add_completion=False, invoke_without_command=True)
 app.add_typer(config_app, name="config")
 
+link_app = typer.Typer(add_completion=False)
+app.add_typer(link_app, name="link")
+
+
+@link_app.command("telegram")
+def link_telegram(
+    debug: Annotated[bool, typer.Option("--debug")] = False,
+    poll_timeout: Annotated[int, typer.Option("--poll-timeout", min=1)] = 30,
+    workspace: Annotated[Path | None, typer.Option("--workspace", file_okay=False, dir_okay=True)] = None,
+) -> None:
+    renderer = Renderer(sys.stdout, interactive=sys.stdout.isatty())
+    try:
+        start_telegram_link(
+            sys.stdin,
+            sys.stdout,
+            workspace=workspace,
+            poll_timeout=poll_timeout,
+            debug=debug,
+        )
+    except (TelegramConfigError, TelegramError) as exc:
+        renderer.line(DiamondState.FAILED, str(exc))
+
 
 @config_app.callback(invoke_without_command=True)
 def config_main(
@@ -248,7 +305,9 @@ def config_show() -> None:
 @config_app.command("select")
 def config_select() -> None:
     runtime = boot(sys.stdin, sys.stdout, interactive=sys.stdout.isatty())
-    ollama = resolve_provider(ModelSettings(provider="ollama", model=runtime.config.model.model, thinking=runtime.config.model.thinking))
+    ollama = resolve_provider(
+        ModelSettings(provider="ollama", model=runtime.config.model.model, thinking=runtime.config.model.thinking)
+    )
     if not ollama.models:
         typer.echo("No Ollama models discovered. Start Ollama or edit the config manually.")
         return
@@ -257,8 +316,32 @@ def config_select() -> None:
         typer.echo(f"{index}. {model}")
     answer = typer.prompt("Select model number", default="1")
     selected = ollama.models[max(0, min(int(answer) - 1, len(ollama.models) - 1))]
-    write_config(runtime.paths.config, replace(runtime.config, model=ModelSettings(provider="ollama", model=selected, thinking=runtime.config.model.thinking)))
+    write_config(
+        runtime.paths.config,
+        replace(
+            runtime.config,
+            model=ModelSettings(provider="ollama", model=selected, thinking=runtime.config.model.thinking),
+        ),
+    )
     typer.echo(f"Selected ollama/{selected}")
+
+
+@config_app.command("language")
+def config_language(language: str | None = None) -> None:
+    paths = default_paths()
+    paths.ensure()
+    if not paths.config.exists():
+        write_default_config(paths.config)
+    config = load_config(paths)
+    if language is None:
+        typer.echo(f"Current language: {language_label(config.interface.language)}")
+        return
+    try:
+        selected = InterfaceLanguage(language)
+    except ValueError as exc:
+        raise typer.BadParameter("language must be one of: auto, ko, en, ja, zh") from exc
+    write_config(paths.config, replace(config, interface=InterfaceSettings(selected, True)))
+    typer.echo(f"Language set to {language_label(selected)}.")
 
 
 @app.command()
@@ -302,7 +385,12 @@ def _provider(provider: str, model: str, thinking: bool):
     if provider == "ollama":
         return OllamaProvider(model=model, thinking=thinking)
     if provider in {"openai-compatible", "openai"}:
-        return OpenAICompatibleProvider(model=model, api_key="", base_url="https://api.openai.com/v1", provider_name=provider)
+        return OpenAICompatibleProvider(
+            model=model,
+            api_key="",
+            base_url="https://api.openai.com/v1",
+            provider_name=provider,
+        )
     if provider == "anthropic":
         return AnthropicProvider(model=model, api_key="")
     return MockProvider(name=f"mock/{model}")

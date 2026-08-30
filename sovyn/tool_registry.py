@@ -18,6 +18,7 @@ from sovyn.tools import (
     git_status,
     http_get,
     list_files,
+    no_op_write,
     read_file,
     search_workspace,
     shell_run,
@@ -46,10 +47,7 @@ class ToolSchema:
     arguments: tuple[ToolArgument, ...] = ()
 
     def json_schema(self) -> dict[str, JsonValue]:  # noqa: DICT_OK
-        properties = {
-            item.name: {"type": item.schema_type.value, "description": item.name}
-            for item in self.arguments
-        }
+        properties = {item.name: {"type": item.schema_type.value, "description": item.name} for item in self.arguments}
         required = tuple(item.name for item in self.arguments if item.required)
         return {
             "type": "object",
@@ -78,18 +76,30 @@ class ToolValidationError(RuntimeError):
 
 TOOLS: tuple[ToolSchema, ...] = (
     ToolSchema("filesystem.list", "List workspace files", ActionKind.READ_FILES),
-    ToolSchema("filesystem.read", "Read a file inside the workspace", ActionKind.READ_FILES, (ToolArgument("path", SchemaType.STRING),)),
+    ToolSchema(
+        "filesystem.read",
+        "Read a file inside the workspace",
+        ActionKind.READ_FILES,
+        (ToolArgument("path", SchemaType.STRING),),
+    ),
     ToolSchema(
         "filesystem.write",
         "Create or replace a file inside the workspace",
         ActionKind.WRITE_FILES,
         (ToolArgument("path", SchemaType.STRING), ToolArgument("content", SchemaType.STRING)),
     ),
-    ToolSchema("workspace.search", "Search file names in the workspace", ActionKind.READ_FILES, (ToolArgument("term", SchemaType.STRING),)),
+    ToolSchema(
+        "workspace.search",
+        "Search file names in the workspace",
+        ActionKind.READ_FILES,
+        (ToolArgument("term", SchemaType.STRING),),
+    ),
     ToolSchema("git.status", "Inspect Git status", ActionKind.READ_FILES),
     ToolSchema("git.diff", "Inspect Git diff summary", ActionKind.READ_FILES),
     ToolSchema("git.log", "Inspect recent Git commits", ActionKind.READ_FILES),
-    ToolSchema("shell.run", "Run a safe shell command", ActionKind.SHELL, (ToolArgument("command", SchemaType.STRING),)),
+    ToolSchema(
+        "shell.run", "Run a safe shell command", ActionKind.SHELL, (ToolArgument("command", SchemaType.STRING),)
+    ),
     ToolSchema("http.get", "Read a URL over HTTP", ActionKind.NETWORK_READ, (ToolArgument("url", SchemaType.STRING),)),
 )
 
@@ -126,6 +136,8 @@ def execute_tool(call: ValidatedToolCall, context: ToolExecutionContext) -> Tool
         return _execute_validated_tool(call, context)
     except (PathSafetyError, ToolValidationError) as exc:
         return ToolResult(call.name, "tool rejected", tool_call_id=call.id, success=False, error=str(exc))
+    except (FileNotFoundError, PermissionError, UnicodeError, OSError) as exc:
+        return ToolResult(call.name, "tool failed", tool_call_id=call.id, success=False, error=str(exc))
 
 
 def execute_validated_tool(call: ValidatedToolCall, workspace: Path, interaction: Interaction | None) -> ToolResult:
@@ -140,6 +152,8 @@ def _execute_validated_tool(call: ValidatedToolCall, context: ToolExecutionConte
             return read_file(resolve_workspace_path(context.workspace, call.arguments["path"])).with_call(call.id)
         case "filesystem.write":
             path = resolve_workspace_path(context.workspace, call.arguments["path"])
+            if _already_matches(path, call.arguments["content"]):
+                return no_op_write(path).with_call(call.id)
             preview = preview_write(path, call.arguments["content"])
             request = PermissionRequest(
                 ActionKind.WRITE_FILES,
@@ -162,14 +176,18 @@ def _execute_validated_tool(call: ValidatedToolCall, context: ToolExecutionConte
         case "shell.run":
             assessment = assess_shell_command(call.arguments["command"])
             if not assessment.safe:
-                return ToolResult(call.name, "shell command rejected", tool_call_id=call.id, success=False, error=assessment.reason)
+                return ToolResult(
+                    call.name, "shell command rejected", tool_call_id=call.id, success=False, error=assessment.reason
+                )
             request = PermissionRequest(
                 ActionKind.SHELL,
                 f"Run shell command: {call.arguments['command']}",
                 reason="Shell may modify files and may not be fully undoable.",
             )
             if _approve(request, context) is Approval.DENY:
-                return ToolResult(call.name, "shell denied", tool_call_id=call.id, success=False, error="Shell access denied")
+                return ToolResult(
+                    call.name, "shell denied", tool_call_id=call.id, success=False, error="Shell access denied"
+                )
             return shell_run(context.workspace, call.arguments["command"]).with_call(call.id)
         case "http.get":
             url = call.arguments["url"]
@@ -177,7 +195,9 @@ def _execute_validated_tool(call: ValidatedToolCall, context: ToolExecutionConte
             if not host:
                 raise ToolValidationError('"url" must include a host.')
             if _approve_network("GET", url, host, context) is Approval.DENY:
-                return ToolResult(call.name, "network denied", tool_call_id=call.id, success=False, error="Network access denied")
+                return ToolResult(
+                    call.name, "network denied", tool_call_id=call.id, success=False, error="Network access denied"
+                )
             return http_get(url).with_call(call.id)
         case unreachable:
             assert_never(unreachable)
@@ -188,6 +208,13 @@ def _schema_for(name: str) -> ToolSchema:
         if schema.name == name:
             return schema
     raise ToolValidationError(f"Unknown tool: {name}")
+
+
+def _already_matches(path: Path, content: str) -> bool:
+    try:
+        return path.exists() and path.read_text(encoding="utf-8") == content
+    except (PermissionError, UnicodeError, OSError):
+        return False
 
 
 def _approve(request: PermissionRequest, context: ToolExecutionContext, preview=None) -> Approval:

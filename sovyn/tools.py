@@ -1,10 +1,20 @@
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-import subprocess
 
 import httpx
 
-IGNORED_DIRECTORIES = {".git", ".next", ".pytest_cache", ".ruff_cache", ".venv", ".venv-gpu", "__pycache__", "node_modules", "outputs"}
+IGNORED_DIRECTORIES = {
+    ".git",
+    ".next",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".venv-gpu",
+    "__pycache__",
+    "node_modules",
+    "outputs",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,13 +25,17 @@ class ToolResult:
     tool_call_id: str = ""
     success: bool = True
     error: str = ""
+    no_change: bool = False
 
     def with_call(self, tool_call_id: str) -> "ToolResult":
-        return ToolResult(self.name, self.summary, self.output, tool_call_id, self.success, self.error)
+        return ToolResult(self.name, self.summary, self.output, tool_call_id, self.success, self.error, self.no_change)
 
 
 def list_files(workspace: Path) -> ToolResult:
-    count = sum(1 for path in workspace.rglob("*") if path.is_file() and not _ignored(path))
+    try:
+        count = sum(1 for path in workspace.rglob("*") if path.is_file() and not _ignored(path))
+    except OSError as exc:
+        return ToolResult("filesystem.list", "list failed", success=False, error=str(exc))
     return ToolResult("filesystem.list", f"{count} files indexed")
 
 
@@ -42,29 +56,66 @@ def read_file(path: Path) -> ToolResult:
 
 
 def write_file(path: Path, content: str) -> ToolResult:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    except PermissionError:
+        return ToolResult("filesystem.write", "write failed", success=False, error=f"Permission denied: {path.name}")
+    except UnicodeError as exc:
+        return ToolResult("filesystem.write", "write failed", success=False, error=str(exc))
+    except OSError as exc:
+        return ToolResult("filesystem.write", "write failed", success=False, error=str(exc))
     return ToolResult("filesystem.write", f"wrote {path.name}", str(path))
 
 
+def no_op_write(path: Path) -> ToolResult:
+    return ToolResult("filesystem.write", "already up to date", str(path), no_change=True)
+
+
 def move_file(source: Path, destination: Path) -> ToolResult:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    source.replace(destination)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(destination)
+    except FileNotFoundError:
+        return ToolResult("filesystem.move", "move failed", success=False, error=f"{source.name} not found")
+    except PermissionError:
+        return ToolResult("filesystem.move", "move failed", success=False, error=f"Permission denied: {source.name}")
+    except OSError as exc:
+        return ToolResult("filesystem.move", "move failed", success=False, error=str(exc))
     return ToolResult("filesystem.move", f"moved {source.name}", str(destination))
 
 
 def delete_file(path: Path) -> ToolResult:
-    path.unlink()
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return ToolResult("filesystem.delete", "delete failed", success=False, error=f"{path.name} not found")
+    except PermissionError:
+        return ToolResult("filesystem.delete", "delete failed", success=False, error=f"Permission denied: {path.name}")
+    except OSError as exc:
+        return ToolResult("filesystem.delete", "delete failed", success=False, error=str(exc))
     return ToolResult("filesystem.delete", f"deleted {path.name}", str(path))
 
 
 def search_workspace(workspace: Path, term: str) -> ToolResult:
-    matches = [path for path in workspace.rglob("*") if path.is_file() and not _ignored(path) and term.lower() in path.name.lower()]
+    try:
+        matches = [
+            path
+            for path in workspace.rglob("*")
+            if path.is_file() and not _ignored(path) and term.lower() in path.name.lower()
+        ]
+    except OSError as exc:
+        return ToolResult("workspace.search", "search failed", success=False, error=str(exc))
     return ToolResult("workspace.search", f"{len(matches)} filename matches")
 
 
 def git_status(workspace: Path) -> ToolResult:
-    result = subprocess.run(["git", "status", "--short"], cwd=workspace, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(
+            ["git", "status", "--short"], cwd=workspace, capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        return ToolResult("git.status", "git command failed", success=False, error=str(exc))
     failure = _git_failure("git.status", result)
     if failure is not None:
         return failure
@@ -73,7 +124,10 @@ def git_status(workspace: Path) -> ToolResult:
 
 
 def git_diff(workspace: Path) -> ToolResult:
-    result = subprocess.run(["git", "diff", "--stat"], cwd=workspace, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["git", "diff", "--stat"], cwd=workspace, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        return ToolResult("git.diff", "git command failed", success=False, error=str(exc))
     failure = _git_failure("git.diff", result)
     if failure is not None:
         return failure
@@ -81,7 +135,12 @@ def git_diff(workspace: Path) -> ToolResult:
 
 
 def git_log(workspace: Path) -> ToolResult:
-    result = subprocess.run(["git", "log", "-5", "--oneline"], cwd=workspace, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(
+            ["git", "log", "-5", "--oneline"], cwd=workspace, capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        return ToolResult("git.log", "git command failed", success=False, error=str(exc))
     failure = _git_failure("git.log", result)
     if failure is not None:
         return failure
@@ -91,8 +150,13 @@ def git_log(workspace: Path) -> ToolResult:
 
 def shell_run(workspace: Path, command: str) -> ToolResult:
     if command == "pytest-missing-runner":
-        return ToolResult("shell.run", "exit 127", "pytest executable missing", success=False, error="pytest executable missing")
-    result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, check=False, shell=True)
+        return ToolResult(
+            "shell.run", "exit 127", "pytest executable missing", success=False, error="pytest executable missing"
+        )
+    try:
+        result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, check=False, shell=True)
+    except OSError as exc:
+        return ToolResult("shell.run", "shell failed", success=False, error=str(exc))
     return ToolResult(
         "shell.run",
         f"exit {result.returncode}",
@@ -103,12 +167,18 @@ def shell_run(workspace: Path, command: str) -> ToolResult:
 
 
 def python_run(workspace: Path, code: str) -> ToolResult:
-    result = subprocess.run(["python", "-c", code], cwd=workspace, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["python", "-c", code], cwd=workspace, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        return ToolResult("python.run", "python failed", success=False, error=str(exc))
     return ToolResult("python.run", f"exit {result.returncode}", result.stdout + result.stderr)
 
 
 def http_get(url: str) -> ToolResult:
-    response = httpx.get(url, timeout=30.0)
+    try:
+        response = httpx.get(url, timeout=30.0)
+    except httpx.RequestError as exc:
+        return ToolResult("http.get", "http failed", success=False, error=str(exc))
     return ToolResult("http.get", f"HTTP {response.status_code}", response.text)
 
 

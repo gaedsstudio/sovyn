@@ -2,7 +2,16 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TextIO
 
-from sovyn.config import ModelSettings, SovynConfig, load_config, write_config, write_default_config
+from sovyn.assist.language import language_label
+from sovyn.config import (
+    InterfaceLanguage,
+    InterfaceSettings,
+    ModelSettings,
+    SovynConfig,
+    load_config,
+    write_config,
+    write_default_config,
+)
 from sovyn.interaction import ConsolePrompter, Interaction
 from sovyn.paths import SovynPaths, default_paths
 from sovyn.provider_init import ProviderResolution, ProviderStatus, resolve_provider
@@ -35,13 +44,27 @@ def boot(
         write_default_config(paths.config)
     config = load_config(paths)
     renderer = Renderer(output_stream, interactive=interactive)
+    if interactive and not config.interface.language_selected:
+        selected = _select_language(input_stream, output_stream)
+        config = replace(config, interface=InterfaceSettings(selected, True))
+        write_config(paths.config, config)
+        renderer.line(DiamondState.COMPLETED, f"Language set to {language_label(selected)}.")
     provider = resolve_provider(config.model)
     if provider.status is ProviderStatus.UNAVAILABLE and config.model.provider == "ollama" and provider.models:
-        config = replace(config, model=ModelSettings(provider="ollama", model=provider.models[0], thinking=config.model.thinking))
+        config = replace(
+            config,
+            model=ModelSettings(provider="ollama", model=provider.models[0], thinking=config.model.thinking),
+        )
         write_config(paths.config, config)
         provider = resolve_provider(config.model)
     store = Store(paths.database)
-    interaction = Interaction(config, renderer, ConsolePrompter(input_stream, output_stream), WorkspaceTrust(store), interactive)
+    interaction = Interaction(
+        config,
+        renderer,
+        ConsolePrompter(input_stream, output_stream),
+        WorkspaceTrust(store),
+        interactive,
+    )
     return AppRuntime(paths, config, provider, renderer, interaction, store, debug)
 
 
@@ -53,3 +76,20 @@ def show_provider_status(runtime: AppRuntime) -> None:
     runtime.renderer.stream_text("")
     if runtime.provider.status is ProviderStatus.UNAVAILABLE:
         runtime.renderer.line(DiamondState.ATTENTION, runtime.provider.detail)
+
+
+def _select_language(input_stream: TextIO, output_stream: TextIO) -> InterfaceLanguage:
+    output_stream.write("SOVYN\n\nSelect language\n\n1. 한국어\n2. English\n3. 日本語\n4. 中文\n\n> ")
+    output_stream.flush()
+    answer = input_stream.readline().strip()
+    choices = {
+        "1": InterfaceLanguage.KO,
+        "ko": InterfaceLanguage.KO,
+        "2": InterfaceLanguage.EN,
+        "en": InterfaceLanguage.EN,
+        "3": InterfaceLanguage.JA,
+        "ja": InterfaceLanguage.JA,
+        "4": InterfaceLanguage.ZH,
+        "zh": InterfaceLanguage.ZH,
+    }
+    return choices.get(answer.lower(), InterfaceLanguage.EN)

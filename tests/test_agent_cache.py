@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 
-from sovyn.agent import AgentRuntime, run_agent
+from sovyn.agent import AgentRuntime, RunStatus, run_agent
 from sovyn.config import DEFAULT_CONFIG
-from sovyn.interaction import Interaction, Prompter
+from sovyn.interaction import Interaction
 from sovyn.storage import Store
 from sovyn.tool_protocol import ProviderTurn, ToolCall
 from sovyn.trust import WorkspaceTrust
@@ -105,7 +105,7 @@ def test_duplicate_read_can_continue_to_write_without_loop_guard_blocking(tmp_pa
     assert "Repeated action detected" not in result.response
 
 
-def test_infinite_cached_read_stalls_safely_without_executing_again(tmp_path: Path, monkeypatch) -> None:
+def test_infinite_cached_read_recovers_without_executing_again(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "README.md").write_text("# SOVYN Test\n", encoding="utf-8")
     store, interaction = _trusted_interaction(tmp_path)
     provider = CountingProvider(
@@ -126,10 +126,13 @@ def test_infinite_cached_read_stalls_safely_without_executing_again(tmp_path: Pa
 
     monkeypatch.setattr("sovyn.tool_registry.read_file", counting_read)
 
-    result = run_agent("read README forever", AgentRuntime(provider, store, interaction.renderer, tmp_path, interaction))
+    result = run_agent(
+        "read README forever", AgentRuntime(provider, store, interaction.renderer, tmp_path, interaction)
+    )
 
     assert len(observed) == 1
-    assert result.response == "Model stalled on an already satisfied read-only action."
+    assert result.response == "done"
+    assert result.status is RunStatus.SUCCESS
 
 
 def test_duplicate_read_refreshes_after_workspace_mutation(tmp_path: Path, monkeypatch) -> None:
@@ -168,7 +171,11 @@ def test_repeated_mutating_actions_still_trigger_loop_guard(tmp_path: Path) -> N
         )
     )
 
-    result = run_agent("write summary forever", AgentRuntime(provider, store, interaction.renderer, tmp_path, interaction))
+    result = run_agent(
+        "write summary forever", AgentRuntime(provider, store, interaction.renderer, tmp_path, interaction)
+    )
 
     assert result.response == "Repeated action detected"
+    assert result.status is RunStatus.STALLED
+    assert result.workflow is None
     assert (tmp_path / "summary.txt").read_text(encoding="utf-8") == "one"
